@@ -1,5 +1,6 @@
 appId: com.amirlwf.anjam
 productName: Anjam
+electronDist: node_modules/electron/dist
 directories:
   output: release
 files:
