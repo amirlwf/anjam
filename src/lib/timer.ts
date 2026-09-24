@@ -1,10 +1,14 @@
-/** Countdown timer → alarm.
+/** Countdown timer → alarm + Pomodoro engine.
  *
- *  Android (native): schedules an exact AlarmManager alarm (setAlarmClock) that
- *  launches AlarmActivity — rings like the phone's own clock with the screen
+ *  Android (native): schedules exact AlarmManager alarms (setAlarmClock) that
+ *  launch AlarmActivity — rings like the phone's own clock with the screen
  *  OFF or locked (full-screen intent), looping the system alarm tone until
- *  dismissed or snoozed.
+ *  dismissed or snoozed. Distinct request codes let many alarms coexist
+ *  (timer uses the default code, each task alarm its own).
  *  Web / Electron: in-app full-screen overlay + looping WebAudio beeps.
+ *
+ *  Pomodoro: focus(short/long) phases with auto-advanced breaks and a
+ *  "waiting" state after each break until the user starts the next round.
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
@@ -16,13 +20,19 @@ export interface AlarmBridge {
     body: string
     dismiss: string
     snooze: string
+    /** distinct per-alarm request code (Android); defaults to the timer code */
+    req?: number
   }): Promise<{ ok: boolean }>
-  cancel(): Promise<void>
+  cancel(o?: { req?: number }): Promise<void>
 }
 
-const alarm = registerPlugin<AlarmBridge>('AlarmBridge')
+export const alarmBridge = registerPlugin<AlarmBridge>('AlarmBridge')
 
 export type AlarmLabels = { title: string; body: string; dismiss: string; snooze: string }
+
+export type TimerKind = 'timer' | 'pomodoro' | 'task'
+export type PomPhase = 'work' | 'short' | 'long'
+export type PomodoroCfg = { work: number; short: number; long: number } // minutes
 
 export type TimerState = {
   running: boolean
@@ -32,9 +42,23 @@ export type TimerState = {
   ringing: boolean
   /** 'native' = Android AlarmActivity owns sound/UI; 'web' = we ring here. */
   mode: 'native' | 'web' | null
+  kind: TimerKind
+  phase: PomPhase | null
+  /** current/next focus round, 1..4 (long break after round 4) */
+  round: number
+  /** break finished — waiting for the user to start the next focus round */
+  waiting: boolean
+  /** task id when a task alarm was handed to the countdown (desktop) */
+  owner: string | null
+  /** what the current ring is about (persisted so overlays can show it) */
+  ringTitle: string | null
+  ringBody: string | null
 }
 
 const KEY = 'anjam.timer.v1'
+const POM_KEY = 'anjam.pomodoro.v1'
+const POM_ROUNDS = 4
+
 const subs = new Set<(s: TimerState) => void>()
 let labels: AlarmLabels | null = null
 let state: TimerState = restore()
@@ -43,22 +67,74 @@ let beepIv: number | null = null
 let autoStop: number | null = null
 let actx: AudioContext | null = null
 
+type LblBuilder = (phase: PomPhase, round: number) => AlarmLabels
+let lblBuild: LblBuilder | null = null
+
+/** TimerPanel registers the localized label builder on mount. */
+export function setLabelBuilder(fn: LblBuilder): void {
+  lblBuild = fn
+}
+
+function lblFor(phase: PomPhase, round: number): AlarmLabels {
+  if (lblBuild) return lblBuild(phase, round)
+  return { title: 'Anjam', body: phase, dismiss: 'Dismiss', snooze: 'Snooze +5 min' }
+}
+
+export const DEFAULT_POMODORO: PomodoroCfg = { work: 25, short: 5, long: 15 }
+
+export function getPomodoroCfg(): PomodoroCfg {
+  try {
+    const raw = localStorage.getItem(POM_KEY)
+    if (raw) {
+      const c = JSON.parse(raw) as Partial<PomodoroCfg>
+      return {
+        work: clampMin(c.work, 1, 120, DEFAULT_POMODORO.work),
+        short: clampMin(c.short, 1, 60, DEFAULT_POMODORO.short),
+        long: clampMin(c.long, 1, 60, DEFAULT_POMODORO.long),
+      }
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_POMODORO }
+}
+
+export function setPomodoroCfg(cfg: PomodoroCfg): void {
+  try {
+    localStorage.setItem(POM_KEY, JSON.stringify(cfg))
+  } catch { /* ignore */ }
+}
+
+function clampMin(v: unknown, lo: number, hi: number, fb: number): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : fb
+  return Math.max(lo, Math.min(hi, n))
+}
+
 function restore(): TimerState {
+  const base: TimerState = {
+    running: false, durationMs: 0, endsAt: null, leftMs: 0, ringing: false, mode: null,
+    kind: 'timer', phase: null, round: 1, waiting: false, owner: null,
+    ringTitle: null, ringBody: null,
+  }
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const s = JSON.parse(raw) as Partial<TimerState>
       return {
+        ...base,
         running: !!s.running,
         durationMs: s.durationMs || 0,
         endsAt: s.endsAt ?? null,
         leftMs: s.leftMs || 0,
-        ringing: false,
-        mode: null,
+        kind: s.kind === 'pomodoro' || s.kind === 'task' ? s.kind : 'timer',
+        phase: s.phase === 'work' || s.phase === 'short' || s.phase === 'long' ? s.phase : null,
+        round: typeof s.round === 'number' && s.round >= 1 ? s.round : 1,
+        waiting: !!s.waiting,
+        owner: typeof s.owner === 'string' ? s.owner : null,
+        ringTitle: typeof s.ringTitle === 'string' ? s.ringTitle : null,
+        ringBody: typeof s.ringBody === 'string' ? s.ringBody : null,
       }
     }
   } catch { /* ignore */ }
-  return { running: false, durationMs: 0, endsAt: null, leftMs: 0, ringing: false, mode: null }
+  return base
 }
 
 function persist(): void {
@@ -115,19 +191,42 @@ function tick(): void {
   if (remainingMs() <= 0) fire()
 }
 
-/** Start (or restart) a countdown of durationMs. */
-export async function startTimer(durationMs: number, lbl: AlarmLabels): Promise<void> {
-  stopBeep()
+type StartOpts = {
+  kind?: TimerKind
+  phase?: PomPhase | null
+  round?: number
+  owner?: string | null
+  keepRinging?: boolean
+  ringTitle?: string | null
+  ringBody?: string | null
+}
+
+async function baseStart(durationMs: number, lbl: AlarmLabels, opts: StartOpts = {}): Promise<void> {
+  if (!opts.keepRinging) stopBeep()
   labels = lbl
-  const at = Date.now() + durationMs
-  state = { running: true, durationMs, endsAt: at, leftMs: durationMs, ringing: false, mode: 'web' }
+  const at = Date.now() + Math.max(1000, durationMs)
+  state = {
+    running: true,
+    durationMs,
+    endsAt: at,
+    leftMs: durationMs,
+    ringing: opts.keepRinging ? state.ringing : false,
+    mode: 'web',
+    kind: opts.kind ?? 'timer',
+    phase: opts.phase ?? null,
+    round: opts.round ?? state.round,
+    waiting: false,
+    owner: opts.owner ?? null,
+    ringTitle: opts.ringTitle ?? null,
+    ringBody: opts.ringBody ?? null,
+  }
   persist()
   emit()
   ensureTicker()
   if (Capacitor.isNativePlatform()) {
     try {
       await LocalNotifications.requestPermissions()
-      const res = await alarm.schedule({ at, ...lbl })
+      const res = await alarmBridge.schedule({ at, ...lbl })
       if (res && res.ok) state = { ...state, mode: 'native' }
     } catch {
       state = { ...state, mode: 'web' }
@@ -137,26 +236,74 @@ export async function startTimer(durationMs: number, lbl: AlarmLabels): Promise<
   }
 }
 
+/** Start (or restart) a plain countdown. Pass `owner` when a task alarm uses it. */
+export function startTimer(durationMs: number, lbl: AlarmLabels, opts?: { owner?: string }): Promise<void> {
+  return baseStart(durationMs, lbl, {
+    kind: opts?.owner ? 'task' : 'timer',
+    owner: opts?.owner ?? null,
+    ringTitle: opts?.owner ? lbl.title : null,
+    ringBody: opts?.owner ? lbl.body : null,
+  })
+}
+
+/* ---------------- Pomodoro ---------------- */
+
+async function runPhase(phase: PomPhase, round: number, keepRinging = false): Promise<void> {
+  const cfg = getPomodoroCfg()
+  const durMs = (phase === 'work' ? cfg.work : phase === 'short' ? cfg.short : cfg.long) * 60_000
+  const lbl = lblFor(phase, round)
+  await baseStart(durMs, lbl, {
+    kind: 'pomodoro',
+    phase,
+    round,
+    keepRinging,
+    ringTitle: lbl.title,
+    ringBody: lbl.body,
+  })
+}
+
+/** Fresh Pomodoro: focus round 1. */
+export function startPomodoro(): Promise<void> {
+  return runPhase('work', 1)
+}
+
+/** From the waiting state: start the next focus round. */
+export function startNextRound(): Promise<void> {
+  if (!state.waiting || state.kind !== 'pomodoro') return Promise.resolve()
+  return runPhase('work', state.round)
+}
+
 export function pauseTimer(): void {
   if (!state.running) return
   const left = remainingMs()
-  if (state.mode === 'native') void alarm.cancel().catch(() => undefined)
+  if (state.mode === 'native') void alarmBridge.cancel().catch(() => undefined)
   clearTicker()
   state = { ...state, running: false, endsAt: null, leftMs: left }
   persist()
   emit()
 }
 
-export function resumeTimer(lbl: AlarmLabels): void {
-  if (state.running || state.leftMs <= 0) return
-  void startTimer(state.leftMs, lbl)
+export function resumeTimer(lbl: AlarmLabels): Promise<void> {
+  if (state.running || state.leftMs <= 0) return Promise.resolve()
+  return baseStart(state.leftMs, lbl, {
+    kind: state.kind,
+    phase: state.phase,
+    round: state.round,
+    owner: state.owner,
+    ringTitle: state.ringTitle ?? (state.owner ? lbl.title : null),
+    ringBody: state.ringBody ?? (state.owner ? lbl.body : null),
+  })
 }
 
 export function cancelTimer(): void {
-  if (state.mode === 'native') void alarm.cancel().catch(() => undefined)
+  if (state.mode === 'native') void alarmBridge.cancel().catch(() => undefined)
   clearTicker()
   stopBeep()
-  state = { running: false, durationMs: 0, endsAt: null, leftMs: 0, ringing: false, mode: null }
+  state = {
+    running: false, durationMs: 0, endsAt: null, leftMs: 0, ringing: false, mode: null,
+    kind: 'timer', phase: null, round: 1, waiting: false, owner: null,
+    ringTitle: null, ringBody: null,
+  }
   persist()
   emit()
 }
@@ -164,7 +311,59 @@ export function cancelTimer(): void {
 function fire(): void {
   clearTicker()
   const native = state.mode === 'native'
-  state = { ...state, running: false, endsAt: null, leftMs: 0, ringing: !native }
+  const kind = state.kind
+  const ended = state.phase
+  const round = state.round
+
+  if (kind === 'pomodoro' && ended) {
+    const cfg = getPomodoroCfg()
+    if (ended === 'work') {
+      // focus done → auto-start the break; announce it now.
+      const nextPhase: PomPhase = round >= POM_ROUNDS ? 'long' : 'short'
+      const durMs = (nextPhase === 'short' ? cfg.short : cfg.long) * 60_000
+      const lbl = lblFor(nextPhase, round)
+      const at = Date.now() + durMs
+      state = {
+        running: true, durationMs: durMs, endsAt: at, leftMs: durMs,
+        ringing: !native, mode: 'web',
+        kind: 'pomodoro', phase: nextPhase, round, waiting: false, owner: null,
+        ringTitle: lbl.title, ringBody: lbl.body,
+      }
+      persist()
+      emit()
+      ensureTicker()
+      if (!native) startBeep()
+      if (native) {
+        void alarmBridge.schedule({ at, ...lbl }).then((res) => {
+          if (res && res.ok) {
+            state = { ...state, mode: 'native' }
+            persist()
+            emit()
+          }
+        }).catch(() => undefined)
+      }
+      return
+    }
+    // break done → ring and WAIT for the user to start the next round
+    const nextRound = ended === 'long' ? 1 : Math.min(POM_ROUNDS, round + 1)
+    state = {
+      running: false, durationMs: 0, endsAt: null, leftMs: 0,
+      ringing: !native, mode: null,
+      kind: 'pomodoro', phase: 'work', round: nextRound, waiting: true, owner: null,
+      ringTitle: state.ringTitle, ringBody: state.ringBody,
+    }
+    persist()
+    emit()
+    if (!native) startBeep()
+    return
+  }
+
+  // base: timer | task countdown
+  state = {
+    ...state,
+    running: false, endsAt: null, leftMs: 0,
+    ringing: !native, waiting: false,
+  }
   persist()
   emit()
   // Native mode: AlarmActivity owns sound + visuals (even with screen off).
@@ -208,6 +407,32 @@ function startBeep(): void {
   } catch { /* audio unavailable */ }
 }
 
+/** A few beeps without touching state (used by the task-alarm fallback). */
+export function ringSoft(times = 3): void {
+  try {
+    actx = actx || new AudioContext()
+    if (actx.state === 'suspended') void actx.resume()
+    let n = 0
+    const group = () => {
+      if (!actx || n >= times) {
+        if (beepSoft) clearInterval(beepSoft)
+        beepSoft = null
+        return
+      }
+      n += 1
+      const t0 = actx.currentTime
+      beep(actx, 880, t0, 0.16)
+      beep(actx, 660, t0 + 0.22, 0.16)
+      beep(actx, 880, t0 + 0.44, 0.16)
+    }
+    group()
+    if (beepSoft) clearInterval(beepSoft)
+    beepSoft = window.setInterval(group, 1200)
+    try { navigator.vibrate?.([500, 250, 500]) } catch { /* ignore */ }
+  } catch { /* audio unavailable */ }
+}
+let beepSoft: number | null = null
+
 export function stopBeep(): void {
   if (beepIv) clearInterval(beepIv)
   beepIv = null
@@ -249,7 +474,10 @@ window.addEventListener('focus', () => {
 ;(window as unknown as Record<string, unknown>).__anjamTimer = {
   start: (ms: number, lbl?: AlarmLabels) =>
     startTimer(ms, lbl || { title: 'Anjam', body: 'timer', dismiss: 'Dismiss', snooze: 'Snooze' }),
+  pomodoro: () => startPomodoro(),
+  next: () => startNextRound(),
   cancel: cancelTimer,
   stopBeep,
   get: getTimer,
+  cfg: getPomodoroCfg,
 }

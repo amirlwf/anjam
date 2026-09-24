@@ -25,25 +25,38 @@ public final class AlarmScheduler {
 
     public static void schedule(Context ctx, long at, String title, String body,
                                 String dismiss, String snooze) {
+        schedule(ctx, REQUEST_CODE, at, title, body, dismiss, snooze);
+    }
+
+    /** req = distinct request code so many task alarms can coexist. */
+    public static void schedule(Context ctx, int req, long at, String title, String body,
+                                String dismiss, String snooze) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) throw new AlarmUnavailableException("AlarmManager missing");
         Intent i = new Intent(ctx, AlarmReceiver.class);
+        i.putExtra("req", req);
         i.putExtra(EXTRA_AT, at);
         i.putExtra(EXTRA_TITLE, title);
         i.putExtra(EXTRA_BODY, body);
         i.putExtra(EXTRA_DISMISS, dismiss);
         i.putExtra(EXTRA_SNOOZE, snooze);
         PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, REQUEST_CODE, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                ctx, req, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         long trigger = Math.max(at, System.currentTimeMillis() + 100);
         AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(trigger, pi);
         am.setAlarmClock(info, pi);
     }
 
     public static void cancel(Context ctx) {
+        cancel(ctx, REQUEST_CODE);
+    }
+
+    public static void cancel(Context ctx, int req) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
-        PendingIntent pi = receiverIntent(ctx);
+        Intent i = new Intent(ctx, AlarmReceiver.class);
+        PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, req, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         am.cancel(pi);
         pi.cancel();
     }

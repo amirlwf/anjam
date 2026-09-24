@@ -1606,3 +1606,58 @@ body {
   color: #fff;
 }
 
+
+
+/* ================= Pomodoro + task-alarm UI ================= */
+.timer-mode { display: inline-flex; width: fit-content; margin: 2px auto 12px; }
+.timer-mode .seg-btn { min-width: 96px; justify-content: center; }
+.pom-status { display: flex; gap: 10px; justify-content: center; align-items: center; margin-bottom: 2px; }
+.pom-phase { font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 999px; }
+.ph-work { color: #b45309; background: rgba(251, 191, 36, 0.16); }
+.ph-short { color: #047857; background: rgba(52, 211, 153, 0.16); }
+.ph-long { color: #1d4ed8; background: rgba(96, 165, 250, 0.16); }
+:root[data-theme='dark'] .ph-work { color: #fbbf24; }
+:root[data-theme='dark'] .ph-short { color: #34d399; }
+:root[data-theme='dark'] .ph-long { color: #60a5fa; }
+.pom-round { font-size: 11px; color: var(--muted); }
+.pom-cfg { display: grid; gap: 8px; justify-items: center; text-align: center; }
+.pom-cfg .timer-presets { justify-content: center; }
+.pom-cfg-hint { margin: 0; }
+
+.time-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.time-row .time-input { min-height: 34px; }
+.bell-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; min-height: 36px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.bell-btn.on { color: var(--accent); border-color: var(--accent); }
+.bell-btn:hover { border-color: var(--accent); }
+
+/* ================= Phone layout polish ================= */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; padding-top: calc(8px + env(safe-area-inset-top)); }
+  .topbar .only-mobile { order: 1; }
+  .topbar-actions { order: 2; margin-inline-start: auto; }
+  .searchbox { order: 3; flex: 1 0 100%; max-width: none; min-width: 0; }
+  .lang-btn { display: none !important; }
+
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal {
+    width: 100%; max-width: none; max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .detail { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .detail-foot {
+    position: sticky; bottom: 0;
+    background: var(--surface);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+}

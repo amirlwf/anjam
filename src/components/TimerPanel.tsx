@@ -11,9 +11,16 @@ import {
   pauseTimer,
   remainingMs,
   resumeTimer,
+  getPomodoroCfg,
+  setLabelBuilder,
+  setPomodoroCfg,
+  startNextRound,
+  startPomodoro,
   startTimer,
   stopBeep,
   type AlarmLabels,
+  type PomPhase,
+  type PomodoroCfg,
   type TimerState,
 } from '../lib/timer'
 import { X } from './Icons'
@@ -33,8 +40,9 @@ function labelsFor(lang: Lang): AlarmLabels {
 /** Full-screen alarm card — web/Electron fallback sound lives in lib/timer. */
 function AlarmOverlay({ lang }: { lang: Lang }) {
   const tt = (k: string) => t(lang, k)
-  const [ringing, setRinging] = useState(getTimer().ringing)
-  useEffect(() => onTimer((s) => setRinging(s.ringing)), [])
+  const [s, setS] = useState(getTimer())
+  useEffect(() => onTimer(setS), [])
+  const ringing = s.ringing
 
   useEffect(() => {
     if (!ringing) return
@@ -52,8 +60,8 @@ function AlarmOverlay({ lang }: { lang: Lang }) {
     <div className="alarm-overlay" role="alertdialog" aria-label={tt('timeUp')}>
       <div className="alarm-card">
         <img className="alarm-logo" src={logo} alt="" />
-        <h2 className="alarm-title">{tt('timeUp')}</h2>
-        <p className="muted">{tt('timeUpBody')}</p>
+        <h2 className="alarm-title">{s.ringTitle || tt('timeUp')}</h2>
+        <p className="muted">{s.ringBody || tt('timeUpBody')}</p>
         <button className="btn primary block" onClick={stopBeep}>
           {tt('stopAlarm')}
         </button>
@@ -76,6 +84,13 @@ export default function TimerPanel({
   const [left, setLeft] = useState(remainingMs())
   const [mins, setMins] = useState(25)
   const [custom, setCustom] = useState('')
+  const [mode, setMode] = useState<'timer' | 'pomodoro'>('timer')
+  const [cfg, setCfgState] = useState<PomodoroCfg>(() => getPomodoroCfg())
+
+  function saveCfg(c: PomodoroCfg) {
+    setCfgState(c)
+    setPomodoroCfg(c)
+  }
 
   useEffect(
     () =>
@@ -85,6 +100,20 @@ export default function TimerPanel({
       }),
     []
   )
+
+  // Localized ring labels for Pomodoro phases (registered while mounted).
+  useEffect(() => {
+    setLabelBuilder((phase: PomPhase) => {
+      const base = labelsFor(lang)
+      const body =
+        phase === 'work'
+          ? tt('phaseWorkDone')
+          : phase === 'short'
+            ? tt('phaseShortDone')
+            : tt('phaseLongDone')
+      return { ...base, body }
+    })
+  }, [lang])
 
   useEffect(() => {
     if (!open) return
@@ -112,6 +141,18 @@ export default function TimerPanel({
         })
       : null
   const native = Capacitor.isNativePlatform()
+  const pom = st.kind === 'pomodoro'
+  const phaseLabel =
+    pom && st.phase
+      ? st.phase === 'work'
+        ? tt('phaseWork')
+        : st.phase === 'short'
+          ? tt('phaseShort')
+          : tt('phaseLong')
+      : null
+  const roundStr = pom
+    ? `${tt('roundLabel')} ${fa ? toFaDigits(st.round) : st.round} / ${fa ? toFaDigits(4) : 4}`
+    : null
 
   return (
     <>
@@ -124,7 +165,29 @@ export default function TimerPanel({
                 <X />
               </button>
             </div>
+            {!active && !st.waiting && (
+              <div className="segmented timer-mode">
+                <button
+                  className={`seg-btn ${mode === 'timer' ? 'active' : ''}`}
+                  onClick={() => setMode('timer')}
+                >
+                  {tt('timerMode')}
+                </button>
+                <button
+                  className={`seg-btn ${mode === 'pomodoro' ? 'active' : ''}`}
+                  onClick={() => setMode('pomodoro')}
+                >
+                  {tt('pomodoro')}
+                </button>
+              </div>
+            )}
             <div className="timer-body">
+              {phaseLabel && (
+                <div className="pom-status">
+                  <span className={`pom-phase ph-${st.phase}`}>{phaseLabel}</span>
+                  {roundStr && <span className="pom-round">{roundStr}</span>}
+                </div>
+              )}
               <div className="timer-ring">
                 <svg viewBox="0 0 160 160" width="160" height="160" aria-hidden="true">
                   <circle className="ring-track" cx="80" cy="80" r={R} />
@@ -146,7 +209,7 @@ export default function TimerPanel({
                 </div>
               )}
 
-              {!active && (
+              {!active && !st.waiting && mode === 'timer' && (
                 <div className="timer-presets">
                   {PRESETS.map((m) => (
                     <button
@@ -181,8 +244,35 @@ export default function TimerPanel({
                 </div>
               )}
 
+              {!active && !st.waiting && mode === 'pomodoro' && (
+                <div className="pom-cfg">
+                  <div className="pom-cfg-label muted small">{tt('focusMinutes')}</div>
+                  <div className="timer-presets">
+                    {[15, 25, 45, 50].map((m) => (
+                      <button
+                        key={m}
+                        className={`chip timer-preset ${cfg.work === m ? 'active' : ''}`}
+                        onClick={() => saveCfg({ ...cfg, work: m })}
+                      >
+                        {fa ? toFaDigits(m) : m} {tt('minutes')}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="muted small pom-cfg-hint">{tt('pomodoroHint')}</p>
+                </div>
+              )}
+
               <div className="timer-actions">
-                {st.running ? (
+                {st.waiting && pom ? (
+                  <>
+                    <button className="btn primary" onClick={() => void startNextRound()}>
+                      {tt('startNextRound')}
+                    </button>
+                    <button className="btn danger" onClick={cancelTimer}>
+                      {tt('stopTimer')}
+                    </button>
+                  </>
+                ) : st.running ? (
                   <>
                     <button className="btn ghost" onClick={pauseTimer}>
                       {tt('pause')}
@@ -201,13 +291,22 @@ export default function TimerPanel({
                     </button>
                   </>
                 ) : (
-                  <button className="btn primary" onClick={() => void startTimer(mins * 60000, labelsFor(lang))}>
-                    {tt('start')}
+                  <button
+                    className="btn primary"
+                    onClick={() =>
+                      void (mode === 'pomodoro'
+                        ? startPomodoro()
+                        : startTimer(mins * 60000, labelsFor(lang)))
+                    }
+                  >
+                    {mode === 'pomodoro' ? tt('startFocus') : tt('start')}
                   </button>
                 )}
               </div>
 
-              <p className="timer-hint muted small">{native ? tt('timerHintNative') : tt('timerHintWeb')}</p>
+              <p className="timer-hint muted small">
+                {pom ? tt('pomodoroHint2') : native ? tt('timerHintNative') : tt('timerHintWeb')}
+              </p>
             </div>
           </div>
         </div>

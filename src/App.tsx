@@ -5,6 +5,7 @@ import { loadConfig } from './lib/config'
 import { getClient } from './lib/supabaseClient'
 import { store, updateList, destroyList } from './lib/store'
 import { startSync, stopSync, syncNow } from './lib/sync'
+import { startAlarmLoop } from './lib/alarms'
 import Setup from './components/Setup'
 import Auth from './components/Auth'
 import Header from './components/Header'
@@ -98,6 +99,12 @@ export default function App() {
     const h = () => syncNow()
     window.addEventListener('anjam:sync-now', h)
     return () => window.removeEventListener('anjam:sync-now', h)
+  }, [])
+
+  // Task alarms: register exact clock-time rings for every task, keep them
+  // reconciled with the store (15s + visibility).
+  useEffect(() => {
+    startAlarmLoop()
   }, [])
 
   useEffect(() => {

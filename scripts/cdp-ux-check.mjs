@@ -126,12 +126,59 @@ async function main() {
   const dig = toAscii(rn.digits).trim()
   check('timer running pill appears', /^\d{1,2}:\d\d$/.test(pill), pill || '(empty)')
   check('timer counting', dig !== '25:00' && /^\d{1,2}:\d\d$/.test(dig), rn.digits)
-  // stop it, close the panel
+  // stop it, close the panel (button reads لغو / cancel)
   await evalJs(`(() => {
-    const b = [...document.querySelectorAll('.timer-actions .btn')].find(x => /توقف|stop/i.test(x.textContent))
+    const b = [...document.querySelectorAll('.timer-actions .btn')].find(x => /لغو|توقف|cancel|stop/i.test(x.textContent))
     b && b.click(); return 'stopped'
   })()`)
   await sleep(300)
+  await evalJs(`window.__anjamTimer.cancel(); 'hard-reset'`)
+  await sleep(200)
+  await evalJs(`document.querySelector('.timer-modal .icon-btn')?.click(); 'closed'`)
+  await sleep(300)
+
+  // --- pomodoro mode ---
+  await evalJs(`window.__anjamTimer.cancel(); 'idle'`)
+  await evalJs(`document.querySelector('.timer-btn').click(); 'ok'`)
+  await sleep(500)
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.timer-mode .seg-btn')].find(x => /پومودورو|Pomodoro/.test(x.textContent))
+    b && b.click(); return b ? 'ok' : 'no-mode-btn'
+  })()`)
+  await sleep(400)
+  const pomIdle = await evalJs(`JSON.stringify({
+    cfg: !!document.querySelector('.pom-cfg'),
+    hint: document.querySelector('.pom-cfg-hint')?.textContent || '',
+    actions: [...document.querySelectorAll('.timer-actions .btn')].map(b => b.textContent.trim()).join('|')
+  })`)
+  const pi = JSON.parse(pomIdle)
+  check('pomodoro config view', pi.cfg && /تمرکز|focus/i.test(pi.actions), pi.actions.slice(0, 60))
+  check('pomodoro hint', pi.hint.length > 10, pi.hint.slice(0, 60))
+  console.log('POM_CFG_FILE:', await shot('19-pomodoro-cfg.png'))
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.timer-actions .btn')].find(x => /شروع تمرکز|Start focus/.test(x.textContent))
+    b && b.click(); return b ? 'ok' : 'no-start'
+  })()`)
+  await sleep(1600)
+  const pomRun = await evalJs(`JSON.stringify({
+    phase: document.querySelector('.pom-phase')?.textContent || '',
+    round: document.querySelector('.pom-round')?.textContent || '',
+    digits: document.querySelector('.timer-digits')?.textContent || '',
+    st: window.__anjamTimer.get()
+  })`)
+  const pr = JSON.parse(pomRun)
+  check('pomodoro running: focus badge', pr.phase.length > 2, pr.phase)
+  check('pomodoro round 1/4', /1|۱/.test(toAscii(pr.round)) && /4|۴/.test(toAscii(pr.round)), pr.round)
+  check('pomodoro engine kind', pr.st.kind === 'pomodoro' && pr.st.phase === 'work', pr.st.kind + '/' + pr.st.phase)
+  check('pomodoro counting', toAscii(pr.digits).trim() !== '25:00' && /^\d{1,2}:\d\d/.test(toAscii(pr.digits)), pr.digits)
+  console.log('POM_RUN_FILE:', await shot('20-pomodoro-run.png'))
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.timer-actions .btn')].find(x => /لغو|توقف|cancel|stop/i.test(x.textContent))
+    b && b.click(); return 'stopped'
+  })()`)
+  await sleep(300)
+  await evalJs(`window.__anjamTimer.cancel(); 'hard-reset'`)
+  await sleep(200)
   await evalJs(`document.querySelector('.timer-modal .icon-btn')?.click(); 'closed'`)
   await sleep(300)
 
@@ -212,7 +259,7 @@ async function main() {
   // pick a date -> popover closes, trigger shows it
   await evalJs(`(() => {
     const days = [...document.querySelectorAll('.cal-day:not(.faded)')]
-    days[14] && days[14].click(); return 'picked'
+    days[25] && days[25].click(); return 'picked'
   })()`)
   await sleep(400)
   const picked = await evalJs(`JSON.stringify({
@@ -222,6 +269,71 @@ async function main() {
   const pk = JSON.parse(picked)
   check('date picked, popover closed', !pk.pop)
   check('trigger shows picked date', pk.trigger.length > 3, pk.trigger)
+  await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
+  await sleep(300)
+
+  // --- task alarm: exact clock time + bell + scheduler ---
+  await evalJs(`(() => {
+    const rows = [...document.querySelectorAll('.task-row')]
+    const hit = rows.find(r => /calendar check/.test(r.textContent)) || rows[0]
+    if (hit) hit.click(); return !!hit
+  })()`)
+  await sleep(700)
+  const segDom = await evalJs(`JSON.stringify({
+    seg: !!document.querySelector('.time-seg'),
+    segs: [...document.querySelectorAll('.time-seg .seg-btn')].map(b => b.textContent.trim()),
+    detail: !!document.querySelector('.detail')
+  })`)
+  const sg = JSON.parse(segDom)
+  check('detail time segments present', sg.seg && sg.segs.length === 2, sg.segs.join('|'))
+  // switch to "with time" (timed) if not already
+  await evalJs(`(() => {
+    const active = document.querySelector('.time-seg .seg-btn.active')
+    if (active && /با ساعت|With time/.test(active.textContent)) return 'already'
+    const b = [...document.querySelectorAll('.time-seg .seg-btn')].find(x => /با ساعت|With time/.test(x.textContent))
+    b && b.click(); return b ? 'clicked' : 'no-btn'
+  })()`)
+  await sleep(500)
+  const timeVal0 = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
+  check('time input visible', timeVal0.length === 5, timeVal0)
+  // type 17:30 with trusted key events
+  await evalJs(`(() => { const el = document.querySelector('[data-testid=time-input]'); if (el) el.focus(); return !!el })()`)
+  for (const ch of ['1', '7', '3', '0']) {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: ch, code: 'Digit' + ch, text: ch, windowsVirtualKeyCode: 48 + Number(ch) })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch, code: 'Digit' + ch, windowsVirtualKeyCode: 48 + Number(ch) })
+    await sleep(80)
+  }
+  await sleep(500)
+  const timeVal = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
+  check('time typed 17:30', timeVal === '17:30', timeVal)
+  await sleep(300)
+  const bellDom = await evalJs(`JSON.stringify({
+    bell: !!document.querySelector('[data-testid=bell-btn]'),
+    text: document.querySelector('[data-testid=bell-btn]')?.textContent.trim() || ''
+  })`)
+  const bd = JSON.parse(bellDom)
+  check('bell shows rings-at', bd.bell && /زنگ/.test(bd.text) && /17/.test(toAscii(bd.text)), bd.text)
+  console.log('TASK_ALARM_FILE:', await shot('15-task-alarm.png'))
+  // bell toggle off/on
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=bell-btn]'); b && b.click(); return 'off' })()`)
+  await sleep(400)
+  const bellOff = await evalJs(`document.querySelector('[data-testid=bell-btn]')?.textContent.trim() || ''`)
+  check('bell muted state', /بی‌زنگ|Muted/.test(bellOff), bellOff)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=bell-btn]'); b && b.click(); return 'on' })()`)
+  await sleep(300)
+  // scheduler registration on desktop = countdown hand-off (timer must be idle)
+  await evalJs(`window.__anjamTimer.cancel(); 'idle'`)
+  await evalJs(`window.__anjamAlarms.sync(); 'sync'`)
+  await sleep(700)
+  const planned = await evalJs(`JSON.stringify({ p: window.__anjamAlarms.planned(), owner: window.__anjamTimer.get().owner })`)
+  const pl = JSON.parse(planned)
+  check('task alarm registered', pl.p.length >= 1, JSON.stringify(pl.p.map(x => x[0] + ':' + x[1].kind)))
+  check('countdown handed the task', pl.owner !== null && pl.p.some(x => x[1].kind === 'timer'), String(pl.owner) + '/' + JSON.stringify(pl.p.map(x => x[1].kind)))
+  // cleanup: mute (cancels registration), close detail
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=bell-btn]'); b && b.click(); return 'muted' })()`)
+  await sleep(500)
+  const planned2 = await evalJs(`JSON.stringify(window.__anjamAlarms.planned())`)
+  check('mute cancels registration', JSON.parse(planned2).length === 0, planned2)
   await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
   await sleep(300)
 
@@ -238,7 +350,77 @@ async function main() {
   })`)
   const mb = JSON.parse(mob)
   check('no horizontal overflow @390px', mb.hOverflow, 'w=' + mb.w)
+  check('layout viewport is 390', mb.w === 390, String(mb.w))
   console.log('MOBILE_FILE:', await shot('14-mobile-390.png'))
+
+  // topbar wraps: search gets its own second row, lang toggle hidden (Settings keeps it)
+  const tb = await evalJs(`(() => {
+    const sb = document.querySelector('.searchbox'); const bar = document.querySelector('.topbar')
+    const lg = document.querySelector('.lang-btn')
+    if (!sb || !bar) return JSON.stringify({ err: true })
+    const s = sb.getBoundingClientRect(); const t = bar.getBoundingClientRect()
+    return JSON.stringify({
+      wrapped: s.width > 250 && s.top > t.top + 18,
+      langHidden: lg ? getComputedStyle(lg).display === 'none' : false,
+      sw: Math.round(s.width)
+    })
+  })()`)
+  const tbj = JSON.parse(tb)
+  check('topbar search on its own row @390', !!tbj.wrapped, 'w=' + tbj.sw)
+  check('lang button hidden @390', !!tbj.langHidden)
+
+  // detail opens full-screen
+  await evalJs(`(() => {
+    const rows = [...document.querySelectorAll('.task-row')]
+    const hit = rows.find(r => /calendar check/.test(r.textContent)) || rows[0]
+    if (hit) hit.click(); return !!hit
+  })()`)
+  await sleep(700)
+  const det = await evalJs(`(() => {
+    const d = document.querySelector('.detail')
+    if (!d) return JSON.stringify({ none: true })
+    const r = d.getBoundingClientRect()
+    return JSON.stringify({ w: Math.round(r.width), x: Math.round(r.left) })
+  })()`)
+  const dj = JSON.parse(det)
+  check('detail full-width @390', dj.w === 390 && dj.x === 0, JSON.stringify(dj))
+  console.log('DETAIL_MOBILE_FILE:', await shot('16-detail-mobile.png'))
+  await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
+  await sleep(400)
+
+  // settings modal becomes a bottom sheet
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.topbar-actions button')].find(x => /تنظیمات|Settings/i.test(x.title || ''))
+    b && b.click(); return b ? 'ok' : 'no-gear'
+  })()`)
+  await sleep(600)
+  const sheet = await evalJs(`(() => {
+    const m = document.querySelector('.modal')
+    if (!m) return JSON.stringify({ none: true })
+    const r = m.getBoundingClientRect()
+    return JSON.stringify({ w: Math.round(r.width), bottomGap: Math.round(window.innerHeight - r.bottom) })
+  })()`)
+  const sh = JSON.parse(sheet)
+  check('settings bottom-sheet @390', sh.w === 390 && sh.bottomGap >= -2 && sh.bottomGap < 44, JSON.stringify(sh))
+  console.log('SHEET_MOBILE_FILE:', await shot('17-settings-sheet.png'))
+  await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
+  await sleep(300)
+
+  // landscape
+  await send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true })
+  await sleep(600)
+  const land = await evalJs(`JSON.stringify({ ok: document.documentElement.scrollWidth <= window.innerWidth + 2, w: window.innerWidth })`)
+  const ld = JSON.parse(land)
+  check('landscape 844x390 no overflow', ld.ok, 'w=' + ld.w)
+  console.log('LANDSCAPE_FILE:', await shot('18-landscape.png'))
+
+  // narrow 360
+  await send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 2, mobile: true })
+  await sleep(600)
+  const nar = await evalJs(`JSON.stringify({ ok: document.documentElement.scrollWidth <= window.innerWidth + 2, w: window.innerWidth })`)
+  const nr = JSON.parse(nar)
+  check('narrow 360 no overflow', nr.ok, 'w=' + nr.w)
+  console.log('NARROW_FILE:', await shot('19-mobile-360.png'))
   await send('Emulation.clearDeviceMetricsOverride')
 
   const failed = results.filter((r) => !r.ok)

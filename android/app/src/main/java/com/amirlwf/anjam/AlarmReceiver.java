@@ -28,6 +28,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (snooze == null) snooze = "Snooze +5 min";
 
         Intent act = new Intent(ctx, AlarmActivity.class);
+        act.putExtra("req", intent.getIntExtra("req", AlarmScheduler.REQUEST_CODE));
         act.putExtra(AlarmScheduler.EXTRA_AT, at);
         act.putExtra(AlarmScheduler.EXTRA_TITLE, title);
         act.putExtra(AlarmScheduler.EXTRA_BODY, body);

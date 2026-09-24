@@ -21,9 +21,10 @@ public class AlarmPlugin extends Plugin {
         String body = call.getString("body", "Time is up!");
         String dismiss = call.getString("dismiss", "Dismiss");
         String snooze = call.getString("snooze", "Snooze +5 min");
+        int req = call.getData().optInt("req", AlarmScheduler.REQUEST_CODE);
         JSObject ret = new JSObject();
         try {
-            AlarmScheduler.schedule(getContext(), at, title, body, dismiss, snooze);
+            AlarmScheduler.schedule(getContext(), req, at, title, body, dismiss, snooze);
             ret.put("ok", true);
         } catch (Throwable t) {
             ret.put("ok", false);
@@ -34,8 +35,9 @@ public class AlarmPlugin extends Plugin {
 
     @PluginMethod
     public void cancel(PluginCall call) {
+        int req = call.getData().optInt("req", AlarmScheduler.REQUEST_CODE);
         try {
-            AlarmScheduler.cancel(getContext());
+            AlarmScheduler.cancel(getContext(), req);
         } catch (Throwable ignored) {
         }
         call.resolve();

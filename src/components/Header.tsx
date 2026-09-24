@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { StatusBar, StatusBarStyle } from '@capacitor/status-bar'
 import type { Lang, SyncStatus, ThemePref } from '../types'
 import { t } from '../lib/i18n'
 import { onSyncStatus } from '../lib/sync'
@@ -14,6 +16,22 @@ export function applyTheme(pref: ThemePref): void {
   localStorage.setItem('anjam.theme', pref)
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+  // Native status bar + browser theme color follow the app theme.
+  try {
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (meta) meta.setAttribute('content', dark ? '#0f1117' : '#f5f6fa')
+    if (Capacitor.isNativePlatform()) {
+      void StatusBar.setStyle({ style: dark ? StatusBarStyle.Dark : StatusBarStyle.Light }).catch(() => undefined)
+      const rgb = getComputedStyle(document.body).backgroundColor
+      const m = rgb.match(/(\d+),\s*(\d+),\s*(\d+)/)
+      const color = m
+        ? `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}`
+        : dark
+          ? '#0f1117'
+          : '#f5f6fa'
+      void StatusBar.setBackgroundColor({ color }).catch(() => undefined)
+    }
+  } catch { /* ignore */ }
 }
 
 export default function Header({
@@ -104,7 +122,7 @@ export default function Header({
           <ThemeIcon />
         </button>
         <button
-          className="btn ghost small"
+          className="btn ghost small lang-btn"
           onClick={() => setLang(lang === 'fa' ? 'en' : 'fa')}
           title={tt('language')}
         >

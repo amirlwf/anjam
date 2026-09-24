@@ -44,9 +44,12 @@ public class AlarmActivity extends Activity {
         String dismiss = str(getIntent().getStringExtra(AlarmScheduler.EXTRA_DISMISS), "Dismiss");
         String snooze = str(getIntent().getStringExtra(AlarmScheduler.EXTRA_SNOOZE), "Snooze +5 min");
 
+        reqCode = getIntent().getIntExtra("req", AlarmScheduler.REQUEST_CODE);
         buildUi(title, body, dismiss, snooze);
         startRinging();
     }
+
+    private int reqCode = AlarmScheduler.REQUEST_CODE;
 
     private static String str(String v, String def) {
         return v == null ? def : v;
@@ -105,7 +108,7 @@ public class AlarmActivity extends Activity {
             @Override
             public void onClick(View v) {
                 try {
-                    AlarmScheduler.schedule(getApplicationContext(),
+                    AlarmScheduler.schedule(getApplicationContext(), reqCode,
                             System.currentTimeMillis() + 5 * 60 * 1000,
                             title, body, dismiss, snooze);
                 } catch (Throwable ignored) {

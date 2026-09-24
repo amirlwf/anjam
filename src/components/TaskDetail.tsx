@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type { Lang, Recurrence } from '../types'
-import { t, fmtDate } from '../lib/i18n'
+import { t, fmtDate, fmtTime } from '../lib/i18n'
 import { store, updateTask, toggleTask, destroyTask, addTask, subtasksOf } from '../lib/store'
+import { isMuted, toggleMute } from '../lib/alarms'
 import { useStore } from '../lib/hooks'
-import { Plus, Trash, X } from './Icons'
+import { Bell, Plus, Trash, X } from './Icons'
 import DatePicker from './DatePicker'
 
 function toDateInput(iso: string | null): string {
@@ -31,6 +32,7 @@ export default function TaskDetail({
   const tt = (k: string) => t(lang, k)
   const st = useStore()
   const [subInput, setSubInput] = useState('')
+  const [, setBellTick] = useState(0)
 
   const task = st.tasks.find((x) => x.id === taskId && !x.deleted)
   if (!task) return null
@@ -106,11 +108,57 @@ export default function TaskDetail({
             <span>{tt('dueDate')}</span>
             <DatePicker lang={lang} value={toDateInput(task.due_at)} onChange={setDate} onClear={() => setDate('')} />
           </label>
-          {task.due_at && !task.all_day && (
+          {task.due_at && (
             <label className="field compact">
               <span>{tt('dueTime')}</span>
-              <input type="time" value={toTimeInput(task.due_at)} onChange={(e) => setTime(e.target.value)} />
+              <div className="time-row">
+                <div className="segmented time-seg">
+                  <button
+                    className={`seg-btn ${task.all_day ? 'active' : ''}`}
+                    onClick={() => void updateTask(taskId, { all_day: true })}
+                  >
+                    {tt('allDay')}
+                  </button>
+                  <button
+                    className={`seg-btn ${!task.all_day ? 'active' : ''}`}
+                    onClick={() => {
+                      if (!task.due_at) return
+                      const d = new Date(task.due_at)
+                      if (d.getHours() === 0 && d.getMinutes() === 0) d.setHours(9, 0, 0, 0)
+                      void updateTask(taskId, { due_at: d.toISOString(), all_day: false })
+                      setBellTick((x) => x + 1)
+                    }}
+                  >
+                    {tt('timed')}
+                  </button>
+                </div>
+                {!task.all_day && (
+                  <input
+                    className="time-input"
+                    data-testid="time-input"
+                    type="time"
+                    value={toTimeInput(task.due_at)}
+                    onChange={(e) => setTime(e.target.value)}
+                  />
+                )}
+              </div>
             </label>
+          )}
+          {task.due_at && !task.all_day && (new Date(task.due_at).getHours() !== 0 || new Date(task.due_at).getMinutes() !== 0) && (
+            <div className="field compact">
+              <span>{tt('alarm')}</span>
+              <button
+                className={`bell-btn ${isMuted(task.id) ? 'off' : 'on'}`}
+                data-testid="bell-btn"
+                onClick={() => {
+                  toggleMute(task.id)
+                  setBellTick((x) => x + 1)
+                }}
+              >
+                <Bell width={14} height={14} />
+                {isMuted(task.id) ? tt('alarmOff') : `${tt('alarmOn')} ${fmtTime(lang, task.due_at)}`}
+              </button>
+            </div>
           )}
           <label className="field compact">
             <span>{tt('priority')}</span>
