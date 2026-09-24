@@ -1,4 +1,4 @@
-# انجم — Anjam ✅
+# انجام — Anjam ✅
 
 > اپلیکیشن To-Do حرفه‌ای با همگام‌سازی زنده بین **ویندوز** و **اندروید** از طریق Supabase
 > Professional to-do app — one codebase, two releases, live sync via Supabase

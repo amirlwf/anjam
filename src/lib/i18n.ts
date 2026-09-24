@@ -107,7 +107,7 @@ const dict: Record<Lang, Record<string, string>> = {
     offlineBanner: 'Offline — changes will sync automatically',
   },
   fa: {
-    appName: 'انجم',
+    appName: 'انجام',
     tagline: 'کارهایت، همه‌جا همراهت',
     inbox: 'صندوق ورودی',
     today: 'امروز',
