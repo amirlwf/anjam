@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f1117" />
+    <title>Anjam — انجم</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('anjam.theme') || 'system';
+          var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          var lang = localStorage.getItem('anjam.lang');
+          if (!lang) lang = (navigator.language || 'en').toLowerCase().indexOf('fa') === 0 ? 'fa' : 'en';
+          document.documentElement.lang = lang;
+          document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

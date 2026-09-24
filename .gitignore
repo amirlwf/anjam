@@ -1,0 +1,27 @@
+node_modules/
+dist-ssr/
+*.local
+.DS_Store
+
+# capacitor synced output (generated from dist/)
+android/app/src/main/assets/public/
+android/app/build/
+android/build/
+android/.gradle/
+local.properties
+
+# signing
+release.keystore
+keystore.properties
+
+# local supabase defaults (optional file next to anjam.exe)
+anjam.config.json
+
+# research scratch
+research/
+
+# build artifacts
+*.exe
+*.apk
+!releases/*.apk
+!releases/*.exe

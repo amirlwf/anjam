@@ -1,0 +1,9 @@
+{
+  "appId": "com.amirlwf.anjam",
+  "appName": "Anjam",
+  "webDir": "dist",
+  "backgroundColor": "#0f1117",
+  "android": {
+    "allowMixedContent": false
+  }
+}
