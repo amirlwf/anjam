@@ -25,5 +25,5 @@ research/
 # build artifacts
 *.exe
 *.apk
+releases/*.idsig
 !releases/*.apk
-!releases/*.exe
