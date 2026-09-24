@@ -4,6 +4,7 @@ import { t } from '../lib/i18n'
 import { loadConfig, saveConfig } from '../lib/config'
 import { createClient } from '@supabase/supabase-js'
 import { Alert, CheckCircle } from './Icons'
+import logo from '../assets/logo.png'
 
 type TestState = { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'fail'; msg: string }
 
@@ -44,7 +45,7 @@ export default function Setup({ lang, onSaved }: { lang: Lang; onSaved: () => vo
     <div className="auth-wrap">
       <div className="auth-card">
         <div className="brand">
-          <span className="brand-mark">✓</span>
+          <img className="brand-mark is-logo" src={logo} alt="" />
           <div>
             <h1>{tt('appName')}</h1>
             <p className="muted">{tt('tagline')}</p>

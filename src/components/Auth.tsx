@@ -3,6 +3,7 @@ import type { Lang } from '../types'
 import { t } from '../lib/i18n'
 import { getClient } from '../lib/supabaseClient'
 import { Gear, Alert } from './Icons'
+import logo from '../assets/logo.png'
 
 export default function Auth({
   lang,
@@ -53,7 +54,7 @@ export default function Auth({
           <Gear />
         </button>
         <div className="brand">
-          <span className="brand-mark">✓</span>
+          <img className="brand-mark is-logo" src={logo} alt="" />
           <div>
             <h1>{tt('appName')}</h1>
             <p className="muted">{tt('tagline')}</p>

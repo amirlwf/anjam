@@ -172,6 +172,12 @@ button {
   font-size: 12.5px;
 }
 
+.brand-mark.is-logo {
+  background: #fff;
+  padding: 4px;
+  object-fit: contain;
+}
+
 .brand-mark {
   display: inline-flex;
   align-items: center;

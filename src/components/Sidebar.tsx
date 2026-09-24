@@ -3,6 +3,7 @@ import type { Lang, View } from '../types'
 import { t } from '../lib/i18n'
 import { store, addList, addLabel, dueBucket } from '../lib/store'
 import { CalendarDay, CalendarRange, CheckCircle, Folder, Inbox, Layers, Flag, Plus, Tag, X } from './Icons'
+import logo from '../assets/logo.png'
 
 function useStore() {
   return useSyncExternalStore(store.subscribe, store.getState)
@@ -84,7 +85,7 @@ export default function Sidebar({
     <aside className="sidebar">
       <div className="sidebar-head">
         <div className="brand mini">
-          <span className="brand-mark">✓</span>
+          <img className="brand-mark is-logo" src={logo} alt="" />
           <span>{tt('appName')}</span>
         </div>
         <button className="icon-btn only-mobile" onClick={onClose}>

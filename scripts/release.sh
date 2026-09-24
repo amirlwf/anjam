@@ -44,14 +44,14 @@ except Exception:
 names = {'Anjam-Setup-1.0.0.exe', 'Anjam-Portable-1.0.0.exe', 'Anjam-1.0.0.apk'}
 print(' '.join(str(a['id']) for a in d if a['name'] in names))
 "); do
-  curl -s -o /dev/null -w "deleted asset $id: %{http_code}\n" --max-time 30 -X DELETE -H "$AUTH" "$API/releases/$RID/assets/$id"
+  curl -s -o /dev/null -w "deleted asset $id: %{http_code}\n" --max-time 30 -X DELETE -H "$AUTH" "https://api.github.com/repos/amirlwf/anjam/releases/assets/$id"
 done
 
 up() {
   local name=$1 file=$2
   [ -f "$file" ] || { echo "  $name: MISSING FILE $file"; return 1; }
   curl -s --max-time 600 -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" \
-    --data-binary @"$file" "$API/releases/$RID/assets?name=$name" \
+    --data-binary @"$file" "https://uploads.github.com/repos/amirlwf/anjam/releases/$RID/assets?name=$name" \
     | python -c "
 import sys, json
 try:
