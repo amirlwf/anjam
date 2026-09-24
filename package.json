@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "postinstall": "node scripts/patch-capacitor-mirrors.js",
     "desktop": "npm run build && electron .",
     "release:win": "npm run build && electron-builder --win"
   },
