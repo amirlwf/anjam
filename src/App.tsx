@@ -1,0 +1,236 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { Lang, View } from './types'
+import { getLang, applyLang, t } from './lib/i18n'
+import { loadConfig } from './lib/config'
+import { getClient } from './lib/supabaseClient'
+import { store, updateList, destroyList } from './lib/store'
+import { startSync, stopSync, syncNow } from './lib/sync'
+import Setup from './components/Setup'
+import Auth from './components/Auth'
+import Header from './components/Header'
+import Sidebar from './components/Sidebar'
+import QuickAdd from './components/QuickAdd'
+import TaskList from './components/TaskList'
+import TaskDetail from './components/TaskDetail'
+import Settings from './components/Settings'
+
+type Phase = 'boot' | 'setup' | 'auth' | 'app'
+
+function viewTitle(lang: Lang, view: View): string {
+  const tt = (k: string) => t(lang, k)
+  switch (view.kind) {
+    case 'inbox':
+      return tt('inbox')
+    case 'today':
+      return tt('today')
+    case 'upcoming':
+      return tt('upcoming')
+    case 'all':
+      return tt('all')
+    case 'completed':
+      return tt('completed')
+    case 'priority':
+      return tt('priorities')
+    case 'label':
+      return '#' + view.name
+    case 'list': {
+      const list = store.getState().lists.find((l) => l.id === view.id)
+      return list ? list.name : tt('projects')
+    }
+  }
+}
+
+export default function App() {
+  const [phase, setPhase] = useState<Phase>('boot')
+  const [lang, setLangState] = useState<Lang>(getLang())
+  const [view, setView] = useState<View>({ kind: 'today' })
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [email, setEmail] = useState('')
+
+  const setLang = useCallback((l: Lang) => {
+    applyLang(l)
+    setLangState(l)
+  }, [])
+
+  const boot = useCallback(async () => {
+    setPhase('boot')
+    const cfg = await loadConfig()
+    if (!cfg.url || !cfg.key) {
+      setPhase('setup')
+      return
+    }
+    try {
+      const sb = await getClient()
+      const {
+        data: { session },
+      } = await sb.auth.getSession()
+      sb.auth.onAuthStateChange((_event, s) => {
+        if (!s) {
+          void stopSync()
+          setEmail('')
+          setSelected(null)
+          setPhase('auth')
+        }
+      })
+      if (!session) {
+        setPhase('auth')
+        return
+      }
+      setEmail(session.user.email || '')
+      await store.load(session.user.id)
+      setPhase('app')
+      void startSync(session.user.id)
+    } catch {
+      setPhase('auth')
+    }
+  }, [])
+
+  useEffect(() => {
+    void boot()
+  }, [boot])
+
+  useEffect(() => {
+    const h = () => syncNow()
+    window.addEventListener('anjam:sync-now', h)
+    return () => window.removeEventListener('anjam:sync-now', h)
+  }, [])
+
+  useEffect(() => {
+    if (phase !== 'app') return
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const typing =
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
+      if (typing) {
+        if (e.key === 'Escape') el!.blur()
+        return
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        document.getElementById('quickadd-input')?.focus()
+      } else if (e.key === '/') {
+        e.preventDefault()
+        document.getElementById('search-input')?.focus()
+      } else if (e.key === 'Escape') {
+        if (selected) setSelected(null)
+        else if (settingsOpen) setSettingsOpen(false)
+        else if (navOpen) setNavOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [phase, selected, settingsOpen, navOpen])
+
+  async function signOut() {
+    if (!window.confirm(t(lang, 'confirmSignOut'))) return
+    try {
+      const sb = await getClient()
+      await sb.auth.signOut()
+    } catch {}
+    await stopSync()
+    setEmail('')
+    setPhase('auth')
+  }
+
+  if (phase === 'boot') {
+    return (
+      <div className="boot">
+        <div className="boot-mark">✓</div>
+        <p className="muted">{t(lang, 'loading')}</p>
+      </div>
+    )
+  }
+
+  if (phase === 'setup') {
+    return <Setup lang={lang} onSaved={() => void boot()} />
+  }
+
+  if (phase === 'auth') {
+    return <Auth lang={lang} onAuthed={() => void boot()} onOpenSetup={() => setPhase('setup')} />
+  }
+
+  const listId = view.kind === 'list' ? view.id : null
+
+  return (
+    <div className={`app ${navOpen ? 'nav-open' : ''}`}>
+      <Sidebar lang={lang} view={view} setView={setView} onClose={() => setNavOpen(false)} />
+      <div className="nav-backdrop" onClick={() => setNavOpen(false)} />
+      <div className="main-col">
+        <Header
+          lang={lang}
+          setLang={setLang}
+          query={query}
+          setQuery={setQuery}
+          onMenu={() => setNavOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+          email={email}
+          onSignOut={() => void signOut()}
+        />
+        <main className="view">
+          <div className="view-head">
+            <h2>{viewTitle(lang, view)}</h2>
+            <div className="view-actions">
+              {view.kind !== 'completed' && (
+                <button className="btn ghost small" onClick={() => setShowCompleted((v) => !v)}>
+                  {showCompleted ? t(lang, 'hideCompleted') : t(lang, 'showCompleted')}
+                </button>
+              )}
+              {view.kind === 'list' && (
+                <>
+                  <button
+                    className="btn ghost small"
+                    onClick={() => {
+                      const list = store.getState().lists.find((l) => l.id === view.id)
+                      if (!list) return
+                      const name = window.prompt(t(lang, 'rename'), list.name)
+                      if (name && name.trim() && name.trim() !== list.name) void updateList(list.id, { name: name.trim() })
+                    }}
+                  >
+                    {t(lang, 'rename')}
+                  </button>
+                  <button
+                    className="btn danger small"
+                    onClick={() => {
+                      if (window.confirm(t(lang, 'delete') + '?')) {
+                        void destroyList(view.id)
+                        setView({ kind: 'inbox' })
+                      }
+                    }}
+                  >
+                    {t(lang, 'delete')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <QuickAdd lang={lang} defaultListId={listId} />
+          <TaskList
+            lang={lang}
+            view={view}
+            query={query}
+            showCompleted={showCompleted}
+            selected={selected}
+            onOpen={setSelected}
+          />
+        </main>
+      </div>
+      {selected && <TaskDetail lang={lang} taskId={selected} onClose={() => setSelected(null)} />}
+      {settingsOpen && (
+        <Settings
+          lang={lang}
+          setLang={setLang}
+          email={email}
+          onClose={() => setSettingsOpen(false)}
+          onSignOut={() => {
+            setSettingsOpen(false)
+            void signOut()
+          }}
+        />
+      )}
+    </div>
+  )
+}
