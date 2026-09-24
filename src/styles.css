@@ -1661,3 +1661,13 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     padding-bottom: calc(10px + env(safe-area-inset-bottom));
   }
 }
+
+
+/* Settings: alarm diagnostics */
+.alarm-status-rows { display: grid; gap: 8px; margin-bottom: 12px; }
+.status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.status-row .chip { min-width: 72px; justify-content: center; text-align: center; }
+.status-row .chip.ok { color: var(--ok); border-color: var(--ok); }
+.status-row .chip.warn { color: var(--warn); border-color: var(--warn); }
+.status-row .btn { flex: none; }
+.status-row .muted { flex: 1; }

@@ -27,8 +27,10 @@ public class AlarmReceiver extends BroadcastReceiver {
         if (dismiss == null) dismiss = "Dismiss";
         if (snooze == null) snooze = "Snooze +5 min";
 
+        int req = intent.getIntExtra("req", AlarmScheduler.REQUEST_CODE);
+
         Intent act = new Intent(ctx, AlarmActivity.class);
-        act.putExtra("req", intent.getIntExtra("req", AlarmScheduler.REQUEST_CODE));
+        act.putExtra("req", req);
         act.putExtra(AlarmScheduler.EXTRA_AT, at);
         act.putExtra(AlarmScheduler.EXTRA_TITLE, title);
         act.putExtra(AlarmScheduler.EXTRA_BODY, body);
@@ -36,8 +38,9 @@ public class AlarmReceiver extends BroadcastReceiver {
         act.putExtra(AlarmScheduler.EXTRA_SNOOZE, snooze);
         act.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
+        // distinct code per alarm so concurrent rings never overwrite each other
         PendingIntent fullPi = PendingIntent.getActivity(
-                ctx, 1001, act, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                ctx, 10000 + (req % 80000), act, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
@@ -70,7 +73,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 .setFullScreenIntent(fullPi, true)
                 .build();
         try {
-            nm.notify(NOTI_ID, n);
+            nm.notify(NOTI_ID + req, n);
         } catch (SecurityException ignored) {
             // notification permission denied — full-screen launch may still work
         }

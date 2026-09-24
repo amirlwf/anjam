@@ -124,8 +124,13 @@ async function scheduleOne(d: Desired): Promise<void> {
     const res = await alarmBridge
       .schedule({ at: d.at, ...lbl, req: reqFor(d.id) })
       .catch(() => ({ ok: false }))
-    if (res && res.ok) planned.set(d.id, { kind: 'native', at: d.at })
-    return
+    if (res && res.ok) {
+      planned.set(d.id, { kind: 'native', at: d.at })
+      return
+    }
+    // Native scheduling failed (permission/plugin) — degrade to the in-app
+    // path instead of staying silent, and surface the reason for debugging.
+    console.warn('[anjam] native alarm failed, using web fallback:', (res as { reason?: string })?.reason)
   }
 
   // Desktop / web
@@ -202,6 +207,11 @@ let loop: number | null = null
 
 /** Boot: register everything, then keep reconciling (15s + visibility). */
 export function startAlarmLoop(): void {
+  if (Capacitor.isNativePlatform()) {
+    // Android 13+: without this runtime grant every notification — and the
+    // full-screen alarm behind it — is dropped by the system silently.
+    void LocalNotifications.requestPermissions().catch(() => undefined)
+  }
   void syncTaskAlarms()
   if (loop) return
   loop = window.setInterval(() => void syncTaskAlarms(), 15_000)
@@ -209,6 +219,54 @@ export function startAlarmLoop(): void {
     if (!document.hidden) void syncTaskAlarms()
   })
   window.addEventListener('focus', () => void syncTaskAlarms())
+}
+
+/* ---------------- Settings diagnostics ---------------- */
+
+export type AlarmStatus = { notif: boolean; exact: boolean; fsi: boolean; sdk: number }
+
+/** null on web/desktop — the native core only exists on Android. */
+export async function getAlarmStatus(): Promise<AlarmStatus | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  try {
+    const s = await alarmBridge.status()
+    if (!s || !s.ok) return null
+    return {
+      notif: !!s.notif,
+      exact: !!s.exact,
+      fsi: !!s.fsi,
+      sdk: typeof s.sdk === 'number' ? s.sdk : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function requestNotifPerm(): Promise<unknown> {
+  return LocalNotifications.requestPermissions().catch(() => undefined)
+}
+
+export function requestExactPerm(): void {
+  void alarmBridge.requestExact().catch(() => undefined)
+}
+
+export function openFsiPage(): void {
+  void alarmBridge.openFsiSettings().catch(() => undefined)
+}
+
+/** 10-second ring straight to the native alarm screen. */
+export async function testAlarmRing(o: {
+  title: string
+  body: string
+  dismiss: string
+  snooze: string
+  delayMs?: number
+}): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    return await alarmBridge.testRing({ delayMs: o.delayMs ?? 10_000, ...o })
+  } catch (e) {
+    return { ok: false, reason: String((e as Error)?.message || e) }
+  }
 }
 
 // Debug / QA hook.

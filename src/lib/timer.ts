@@ -24,6 +24,17 @@ export interface AlarmBridge {
     req?: number
   }): Promise<{ ok: boolean }>
   cancel(o?: { req?: number }): Promise<void>
+  /** diagnostics for the settings screen */
+  status(): Promise<{ ok: boolean; notif?: boolean; exact?: boolean; fsi?: boolean; sdk?: number }>
+  requestExact(): Promise<void>
+  openFsiSettings(): Promise<void>
+  testRing(o: {
+    delayMs?: number
+    title: string
+    body: string
+    dismiss: string
+    snooze: string
+  }): Promise<{ ok: boolean; reason?: string }>
 }
 
 export const alarmBridge = registerPlugin<AlarmBridge>('AlarmBridge')

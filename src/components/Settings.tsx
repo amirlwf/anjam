@@ -9,6 +9,15 @@ import { exportJson, store } from '../lib/store'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
 import { getCalPref, setCalPref, type CalSys } from '../lib/calendar'
+import { Capacitor } from '@capacitor/core'
+import {
+  getAlarmStatus,
+  requestNotifPerm,
+  requestExactPerm,
+  openFsiPage,
+  testAlarmRing,
+  type AlarmStatus,
+} from '../lib/alarms'
 
 type TestState = { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'fail'; msg: string }
 
@@ -32,6 +41,9 @@ export default function Settings({
   const [theme, setTheme] = useState<ThemePref>((localStorage.getItem('anjam.theme') as ThemePref) || 'system')
   const [sync, setSync] = useState<SyncStatus>({ state: 'disabled', lastSyncAt: null, pending: 0, error: null })
   const [cal, setCal] = useState<CalSys>(getCalPref())
+  const nativeAlarms = Capacitor.isNativePlatform()
+  const [ast, setAst] = useState<AlarmStatus | null>(null)
+  const [ringTest, setRingTest] = useState<'idle' | 'scheduled' | 'fail'>('idle')
 
   useEffect(() => {
     const un = onSyncStatus(setSync)
@@ -41,6 +53,24 @@ export default function Settings({
     })
     return un
   }, [])
+
+  useEffect(() => {
+    if (!nativeAlarms) return
+    const load = () => void getAlarmStatus().then((s) => { if (s) setAst(s) })
+    load()
+    window.addEventListener('focus', load)
+    return () => window.removeEventListener('focus', load)
+  }, [nativeAlarms])
+
+  function handleRingTest() {
+    void testAlarmRing({
+      title: tt('appName'),
+      body: tt('testRingBody'),
+      dismiss: tt('alarmDismiss'),
+      snooze: tt('alarmSnooze'),
+      delayMs: 10000,
+    }).then((r) => setRingTest(r.ok ? 'scheduled' : 'fail'))
+  }
 
   async function handleTest() {
     setTest({ kind: 'testing' })
@@ -196,6 +226,65 @@ export default function Settings({
             </p>
           )}
         </section>
+
+        {nativeAlarms && (
+          <section className="settings-section">
+            <h3>{tt('alarmsSec')}</h3>
+            <div className="alarm-status-rows">
+              <div className="status-row">
+                <span>{tt('notifPerm')}</span>
+                <button
+                  className={`chip ${ast?.notif ? 'ok' : 'warn'}`}
+                  onClick={() => {
+                    void requestNotifPerm().then(() => getAlarmStatus()).then((s) => { if (s) setAst(s) })
+                  }}
+                >
+                  {ast?.notif ? tt('permGranted') : tt('permFix')}
+                </button>
+              </div>
+              {ast && ast.sdk >= 31 && (
+                <div className="status-row">
+                  <span>{tt('exactPerm')}</span>
+                  <button
+                    className={`chip ${ast.exact ? 'ok' : 'warn'}`}
+                    onClick={() => {
+                      requestExactPerm()
+                      setTimeout(() => void getAlarmStatus().then((s) => { if (s) setAst(s) }), 700)
+                    }}
+                  >
+                    {ast.exact ? tt('permGranted') : tt('permFix')}
+                  </button>
+                </div>
+              )}
+              {ast && ast.sdk >= 34 && !ast.fsi && (
+                <div className="status-row">
+                  <span>{tt('fsiPerm')}</span>
+                  <button
+                    className="chip warn"
+                    onClick={() => {
+                      openFsiPage()
+                      setTimeout(() => void getAlarmStatus().then((s) => { if (s) setAst(s) }), 700)
+                    }}
+                  >
+                    {tt('permFix')}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="status-row">
+              <button className="btn" onClick={handleRingTest} disabled={ringTest === 'scheduled'}>
+                {tt('testRing')}
+              </button>
+              <span className="muted small">
+                {ringTest === 'scheduled'
+                  ? tt('testRingOk')
+                  : ringTest === 'fail'
+                    ? tt('testRingFail')
+                    : tt('testRingHint')}
+              </span>
+            </div>
+          </section>
+        )}
 
         <section className="settings-section">
           <h3>{tt('deviceLocal')}</h3>

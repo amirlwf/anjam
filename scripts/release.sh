@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates (or updates) the GitHub release v1.1.1 and uploads all artifacts.
+# Creates (or updates) the GitHub release v1.1.2 and uploads all artifacts.
 # Usage: GITHUB_TOKEN=ghp_xxx bash scripts/release.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -7,10 +7,10 @@ cd "$(dirname "$0")/.."
 TOKEN="${GITHUB_TOKEN:?set GITHUB_TOKEN}"
 API="https://api.github.com/repos/amirlwf/anjam"
 AUTH="Authorization: Bearer $TOKEN"
-TAG="v1.1.1"
+TAG="v1.1.2"
 
 PAYLOAD=$(cat <<'JSON'
-{"tag_name":"v1.1.1","name":"Anjam v1.1.1","body":"## انجام — Anjam v1.1.1\n\nاپ To-Do حرفه‌ای با همگام‌سازی زنده Supabase بین ویندوز و اندروید (یک کدپایه‌ی TypeScript).\n\n**فایل‌ها:**\n- `Anjam-Setup-1.1.1.exe` — نصب‌کننده ویندوز\n- `Anjam-Portable-1.1.1.exe` — نسخه پورتبل بدون نصب\n- `Anjam-1.1.1.apk` — اندروید (امضاشده، minSdk 22 / target 34)\n\n**v1.1.1:**\n- **زنگ دقیق کارها مثل ساعت گوشی**: روز + ساعت دقیق هر کار، زنگ در همون لحظه (AlarmManager.setAlarmClock، صفحه تمام‌صفحه حتی با گوشی خاموش/قفل)، چند زنگ همزمان، ۵ دقیقه بعد، دکمه بی‌زنگ per-device.\n- **تکنیک پومودورو**: فاز تمرکز/استراحت کوتاه/بلند، شروع خودکار استراحت، دور ۱ تا ۴، زنگ پایان هر فاز.\n- **ریسپانسیو اندروید**: مودال‌ها bottom-sheet، سرچ در ردیف دوم، کیبورد adjustResize، نوار وضعیت هماهنگ با تم، جلوگیری از زوم.\n\n**v1.1.1:** تایمر با آلارم بومی، تقویم شمسی/میلادی، فونت وزیرمتن، آیکون‌ها و انیمیشن‌های مینیمال.\n\n**راه‌اندازی سریع:**\n1. در Supabase پروژه بساز و `supabase/schema.sql` را در SQL Editor اجرا کن.\n2. Authentication → Providers → Email → «Confirm email» را خاموش کن.\n3. اپ را باز کن → ⚙ تنظیمات → Project URL + anon key → Connect → با یک ایمیل روی هر دو دستگاه وارد شو.\n\nراهنمای کامل: `docs/SUPABASE_SETUP.md`"}
+{"tag_name":"v1.1.2","name":"Anjam v1.1.2","body":"## انجام — Anjam v1.1.2\n\nاپ To-Do حرفه‌ای با همگام‌سازی زنده Supabase بین ویندوز و اندروید (یک کدپایه‌ی TypeScript).\n\n**فایل‌ها:**\n- `Anjam-Setup-1.1.2.exe` — نصب‌کننده ویندوز\n- `Anjam-Portable-1.1.2.exe` — نسخه پورتبل بدون نصب\n- `Anjam-1.1.2.apk` — اندروید (امضاشده، minSdk 22 / target 34)\n\n**v1.1.2 — رفع هسته‌ی زنگ اندروید:**\n- **ثبت پلاگین AlarmBridge در MainActivity** — قبلاً هرگز ثبت نشده بود و هیچ زنگی روی گوشی برنامه‌ریزی نمی‌شد (ریشه‌ی اصلی باگ).\n- **پرمیشن POST_NOTIFICATIONS** (اندروید ۱۳+) + درخواست مجوز اعلان هنگام اجرا — بدون آن نوتیفیکیشن و زنگ تمام‌صفحه بی‌صدا حذف می‌شد.\n- **بازیابی زنگ‌ها بعد از ری‌استارت/آپدیت** (BootReceiver + SharedPreferences).\n- **بخش «زنگ و اعلان‌ها» در تنظیمات**: وضعیت مجوزها (اعلان/زنگ دقیق/تمام‌صفحه) با دکمه‌ی رفع، و **«تست زنگ (۱۰ ثانیه)»** برای اطمینان از سلامت هسته.\n- fallback به حالت وب هنگام شکست زنگ بومی (دیگه سکوت نمی‌کنه) + نوتیفیکیشن/FullScreenIntent مجزا برای زنگ‌های همزمان.\n\n**v1.1.2:** زنگ دقیق کارها (روز + ساعت)، تکنیک پومودورو، ریسپانسیو عمیق اندروید.\n\n**v1.1.0:** تایمر با آلارم بومی، تقویم شمسی/میلادی، فونت وزیرمتن.\n\n**راه‌اندازی سریع:**\n1. در Supabase پروژه بساز و `supabase/schema.sql` را در SQL Editor اجرا کن.\n2. Authentication → Providers → Email → «Confirm email» را خاموش کن.\n3. اپ را باز کن → ⚙ تنظیمات → Project URL + anon key → Connect → با یک ایمیل روی هر دو دستگاه وارد شو.\n\nراهنمای کامل: `docs/SUPABASE_SETUP.md`"}
 JSON
 )
 
@@ -41,7 +41,7 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     d = []
-names = {'Anjam-Setup-1.1.1.exe', 'Anjam-Portable-1.1.1.exe', 'Anjam-1.1.1.apk'}
+names = {'Anjam-Setup-1.1.2.exe', 'Anjam-Portable-1.1.2.exe', 'Anjam-1.1.2.apk'}
 print(' '.join(str(a['id']) for a in d if a['name'] in names))
 "); do
   curl -s -o /dev/null -w "deleted asset $id: %{http_code}\n" --max-time 30 -X DELETE -H "$AUTH" "https://api.github.com/repos/amirlwf/anjam/releases/assets/$id"
@@ -65,7 +65,7 @@ else:
     print('  ERR ' + json.dumps(d.get('errors') or d)[:300])"
 }
 
-up "Anjam-1.1.1.apk" "releases/Anjam-1.1.1.apk"
-up "Anjam-Setup-1.1.1.exe" "release/Anjam-Setup-1.1.1.exe"
-up "Anjam-Portable-1.1.1.exe" "release/Anjam-Portable-1.1.1.exe"
+up "Anjam-1.1.2.apk" "releases/Anjam-1.1.2.apk"
+up "Anjam-Setup-1.1.2.exe" "release/Anjam-Setup-1.1.2.exe"
+up "Anjam-Portable-1.1.2.exe" "release/Anjam-Portable-1.1.2.exe"
 echo "RELEASE=https://github.com/amirlwf/anjam/releases/tag/$TAG"

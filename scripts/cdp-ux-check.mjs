@@ -402,6 +402,10 @@ async function main() {
   })()`)
   const sh = JSON.parse(sheet)
   check('settings bottom-sheet @390', sh.w === 390 && sh.bottomGap >= -2 && sh.bottomGap < 44, JSON.stringify(sh))
+  const alarmSecSeen = await evalJs(
+    `[...document.querySelectorAll('.settings-section h3')].some(h => /زنگ و اعلان|Alarms/.test(h.textContent))`
+  )
+  check('alarm diagnostics section hidden on web', !alarmSecSeen, String(alarmSecSeen))
   console.log('SHEET_MOBILE_FILE:', await shot('17-settings-sheet.png'))
   await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
   await sleep(300)
