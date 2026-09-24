@@ -1,0 +1,85 @@
+-- ============================================================
+-- Anjam — Supabase schema  (paste into SQL Editor → Run)
+-- Idempotent: safe to run more than once.
+-- ============================================================
+
+create extension if not exists pgcrypto;
+
+-- ---------- lists (projects) ----------
+create table if not exists public.lists (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name       text not null,
+  color      text not null default '#6366f1',
+  sort_order double precision not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false
+);
+
+-- ---------- labels ----------
+create table if not exists public.labels (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name       text not null,
+  color      text not null default '#3b82f6',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false
+);
+
+-- ---------- tasks ----------
+create table if not exists public.tasks (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  list_id     uuid references public.lists (id) on delete set null,
+  parent_id   uuid references public.tasks (id) on delete cascade,
+  title       text not null default '',
+  notes       text not null default '',
+  status      text not null default 'todo' check (status in ('todo', 'done')),
+  priority    smallint not null default 0 check (priority between 0 and 4),
+  due_at      timestamptz,
+  all_day     boolean not null default true,
+  recurrence  text not null default 'none',
+  completed_at timestamptz,
+  labels      text[] not null default '{}',
+  sort_order  double precision not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+-- ---------- indexes ----------
+create index if not exists lists_user_updated on public.lists (user_id, updated_at);
+create index if not exists labels_user_updated on public.labels (user_id, updated_at);
+create index if not exists tasks_user_updated on public.tasks (user_id, updated_at);
+create index if not exists tasks_list_id       on public.tasks (list_id);
+create index if not exists tasks_parent_id     on public.tasks (parent_id);
+create index if not exists tasks_due_at        on public.tasks (user_id, due_at);
+
+-- ---------- row level security ----------
+alter table public.lists  enable row level security;
+alter table public.labels enable row level security;
+alter table public.tasks  enable row level security;
+
+drop policy if exists lists_owner_all  on public.lists;
+drop policy if exists labels_owner_all on public.labels;
+drop policy if exists tasks_owner_all  on public.tasks;
+
+create policy lists_owner_all  on public.lists  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy labels_owner_all on public.labels for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy tasks_owner_all  on public.tasks  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ---------- realtime (postgres_changes) ----------
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.lists;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.labels;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.tasks;
+  exception when others then null; end;
+end $$;
