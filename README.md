@@ -9,11 +9,11 @@
 
 | پلتفرم | فایل |
 |---|---|
-| اندروید | [`releases/Anjam-1.0.0.apk`](releases/Anjam-1.0.0.apk) — دانلود مستقیم از ریپو |
-| ویندوز (نصب‌کننده) | `npm install && npm run release:win` ← `release/Anjam-Setup-1.0.0.exe` |
-| ویندوز (پورتبل) | همان دستور ← `release/Anjam-Portable-1.0.0.exe` |
+| اندروید | [`Anjam-1.0.0.apk`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-1.0.0.apk) |
+| ویندوز (نصب‌کننده) | [`Anjam-Setup-1.0.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-Setup-1.0.0.exe) |
+| ویندوز (پورتبل) | [`Anjam-Portable-1.0.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-Portable-1.0.0.exe) |
 
-> exeهای ویندوز (~۷۸MB) به‌خاطر حجم در گیت کامیت نمی‌شوند؛ با یک دستور ساخته می‌شوند.
+> همه در [ریلیز v1.0.0](https://github.com/amirlwf/anjam/releases/tag/v1.0.0) — یا ساخت محلی: `npm install && npm run release:win`
 
 ## راه‌اندازی در ۳ قدم
 
