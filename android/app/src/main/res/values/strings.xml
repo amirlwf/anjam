@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Anjam</string>
+    <string name="title_activity_main">Anjam</string>
+    <string name="package_name">com.amirlwf.anjam</string>
+    <string name="custom_url_scheme">com.amirlwf.anjam</string>
+</resources>

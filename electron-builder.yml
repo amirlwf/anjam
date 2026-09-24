@@ -1,0 +1,23 @@
+appId: com.amirlwf.anjam
+productName: Anjam
+directories:
+  output: release
+files:
+  - dist/**
+  - electron/**
+win:
+  target:
+    - nsis
+    - portable
+  artifactName: Anjam-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: Anjam
+  artifactName: Anjam-Setup-${version}.${ext}
+portable:
+  artifactName: Anjam-Portable-${version}.${ext}
+compression: normal
+npmRebuild: false
