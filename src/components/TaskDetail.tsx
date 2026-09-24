@@ -4,6 +4,7 @@ import { t, fmtDate } from '../lib/i18n'
 import { store, updateTask, toggleTask, destroyTask, addTask, subtasksOf } from '../lib/store'
 import { useStore } from '../lib/hooks'
 import { Plus, Trash, X } from './Icons'
+import DatePicker from './DatePicker'
 
 function toDateInput(iso: string | null): string {
   if (!iso) return ''
@@ -103,7 +104,7 @@ export default function TaskDetail({
         <div className="detail-grid">
           <label className="field compact">
             <span>{tt('dueDate')}</span>
-            <input type="date" value={toDateInput(task.due_at)} onChange={(e) => setDate(e.target.value)} />
+            <DatePicker lang={lang} value={toDateInput(task.due_at)} onChange={setDate} onClear={() => setDate('')} />
           </label>
           {task.due_at && !task.all_day && (
             <label className="field compact">

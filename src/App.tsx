@@ -50,6 +50,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   const [email, setEmail] = useState('')
+  const [, setCalTick] = useState(0)
 
   const setLang = useCallback((l: Lang) => {
     applyLang(l)
@@ -124,6 +125,12 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [phase, selected, settingsOpen, navOpen])
+
+  useEffect(() => {
+    const h = () => setCalTick((x) => x + 1)
+    window.addEventListener('anjam:cal-changed', h)
+    return () => window.removeEventListener('anjam:cal-changed', h)
+  }, [])
 
   async function signOut() {
     if (!window.confirm(t(lang, 'confirmSignOut'))) return

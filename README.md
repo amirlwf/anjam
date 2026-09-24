@@ -9,11 +9,13 @@
 
 | پلتفرم | فایل |
 |---|---|
-| اندروید | [`Anjam-1.0.0.apk`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-1.0.0.apk) |
-| ویندوز (نصب‌کننده) | [`Anjam-Setup-1.0.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-Setup-1.0.0.exe) |
-| ویندوز (پورتبل) | [`Anjam-Portable-1.0.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.0.0/Anjam-Portable-1.0.0.exe) |
+| اندروید | [`Anjam-1.1.0.apk`](https://github.com/amirlwf/anjam/releases/download/v1.1.0/Anjam-1.1.0.apk) |
+| ویندوز (نصب‌کننده) | [`Anjam-Setup-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.1.0/Anjam-Setup-1.1.0.exe) |
+| ویندوز (پورتبل) | [`Anjam-Portable-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.1.0/Anjam-Portable-1.1.0.exe) |
 
-> همه در [ریلیز v1.0.0](https://github.com/amirlwf/anjam/releases/tag/v1.0.0) — یا ساخت محلی: `npm install && npm run release:win`
+> همه در [ریلیز v1.1.0](https://github.com/amirlwf/anjam/releases/tag/v1.1.0) — یا ساخت محلی: `npm install && npm run release:win`
+
+**v1.1.0:** تایمر با آلارم بومی اندروید (بوق ممتد مثل ساعت گوشی، حتی با صفحه خاموش/قفل)، تقویم شمسی/میلادی با سوییچ، فونت وزیرمتن، آیکون‌ها و انیمیشن‌های مینیمال، ریسپانسیو موبایل.
 
 ## راه‌اندازی در ۳ قدم
 

@@ -1,4 +1,5 @@
 import type { Lang } from '../types'
+import { getCalPref, toJalaali, JAL_MONTHS, JAL_MONTHS_EN } from './calendar'
 
 const dict: Record<Lang, Record<string, string>> = {
   en: {
@@ -105,6 +106,25 @@ const dict: Record<Lang, Record<string, string>> = {
     invalidLogin: 'Invalid email or password',
     signupOk: 'Account created — check your email if confirmations are enabled',
     offlineBanner: 'Offline — changes will sync automatically',
+    timer: 'Timer',
+    timerTitle: 'Countdown',
+    start: 'Start',
+    pause: 'Pause',
+    resume: 'Resume',
+    stopTimer: 'Stop',
+    endsAt: 'Ends at',
+    timeUp: 'Time is up!',
+    timeUpBody: 'The countdown has finished',
+    stopAlarm: 'Stop alarm',
+    minutes: 'min',
+    calendar: 'Calendar',
+    calSolar: 'Jalali',
+    calGreg: 'Gregorian',
+    clearDate: 'No date',
+    alarmDismiss: 'Dismiss',
+    alarmSnooze: 'Snooze +5 min',
+    timerHintNative: 'Rings like your phone clock — even with the screen off.',
+    timerHintWeb: 'Rings while the app is open.',
   },
   fa: {
     appName: 'انجام',
@@ -210,6 +230,25 @@ const dict: Record<Lang, Record<string, string>> = {
     invalidLogin: 'ایمیل یا رمز اشتباه است',
     signupOk: 'ساخت حساب انجام شد — در صورت فعال‌بودن تأیید ایمیل، صندوق ایمیلت را ببین',
     offlineBanner: 'آفلاین — تغییرات خودکار همگام می‌شوند',
+    timer: 'تایمر',
+    timerTitle: 'شمارش معکوس',
+    start: 'شروع',
+    pause: 'مکث',
+    resume: 'ادامه',
+    stopTimer: 'لغو',
+    endsAt: 'پایان ساعت',
+    timeUp: 'وقت تایمر رسید!',
+    timeUpBody: 'شمارش معکوس تمام شد',
+    stopAlarm: 'توقف زنگ',
+    minutes: 'دقیقه',
+    calendar: 'تقویم',
+    calSolar: 'شمسی',
+    calGreg: 'میلادی',
+    clearDate: 'بدون تاریخ',
+    alarmDismiss: 'توقف',
+    alarmSnooze: '۵ دقیقه بعد',
+    timerHintNative: 'مثل ساعت خود گوشی زنگ می‌خورد — حتی وقتی صفحه خاموش است.',
+    timerHintWeb: 'تا وقتی اپ باز است زنگ می‌خورد.',
   },
 }
 
@@ -229,18 +268,37 @@ export function applyLang(lang: Lang): void {
   document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr'
 }
 
+/** Convert Latin digits to Persian digits. */
+export function toFaDigits(s: string | number): string {
+  return String(s).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)])
+}
+
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function fmtDate(lang: Lang, iso: string): string {
   const d = new Date(iso)
+  const cal = getCalPref()
+  if (cal === 'jalali') {
+    if (lang === 'fa') {
+      try {
+        return new Intl.DateTimeFormat('fa-IR', { month: 'long', day: 'numeric', weekday: 'short' }).format(d)
+      } catch {
+        /* fall through */
+      }
+    }
+    const j = toJalaali(d.getFullYear(), d.getMonth() + 1, d.getDate())
+    const wd = WEEKDAYS_EN[d.getDay()]
+    const mon = JAL_MONTHS_EN[j.jm - 1]
+    return lang === 'fa' ? `${toFaDigits(j.jd)} ${JAL_MONTHS[j.jm - 1]} ${toFaDigits(j.jy)}` : `${wd} ${j.jd} ${mon} ${j.jy}`
+  }
   if (lang === 'fa') {
     try {
-      return new Intl.DateTimeFormat('fa-IR', { month: 'long', day: 'numeric', weekday: 'short' }).format(d)
+      return new Intl.DateTimeFormat('fa-IR-u-ca-gregory', { month: 'long', day: 'numeric', weekday: 'short' }).format(d)
     } catch {
       /* fall through */
     }
   }
-  return `${WEEKDAYS_EN[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`
+  return `${WEEKDAYS_EN[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
 }
 
 export function fmtTime(lang: Lang, iso: string): string {

@@ -8,6 +8,7 @@ import { onSyncStatus, syncNow } from '../lib/sync'
 import { exportJson, store } from '../lib/store'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
+import { getCalPref, setCalPref, type CalSys } from '../lib/calendar'
 
 type TestState = { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'fail'; msg: string }
 
@@ -30,6 +31,7 @@ export default function Settings({
   const [test, setTest] = useState<TestState>({ kind: 'idle' })
   const [theme, setTheme] = useState<ThemePref>((localStorage.getItem('anjam.theme') as ThemePref) || 'system')
   const [sync, setSync] = useState<SyncStatus>({ state: 'disabled', lastSyncAt: null, pending: 0, error: null })
+  const [cal, setCal] = useState<CalSys>(getCalPref())
 
   useEffect(() => {
     const un = onSyncStatus(setSync)
@@ -122,6 +124,27 @@ export default function Settings({
               English
             </button>
           </div>
+          <h3 style={{ marginTop: 14 }}>{tt('calendar')}</h3>
+          <div className="segmented">
+            <button
+              className={`seg-btn ${cal === 'jalali' ? 'active' : ''}`}
+              onClick={() => {
+                setCal('jalali')
+                setCalPref('jalali')
+              }}
+            >
+              {tt('calSolar')}
+            </button>
+            <button
+              className={`seg-btn ${cal === 'gregorian' ? 'active' : ''}`}
+              onClick={() => {
+                setCal('gregorian')
+                setCalPref('gregorian')
+              }}
+            >
+              {tt('calGreg')}
+            </button>
+          </div>
         </section>
 
         <section className="settings-section">
@@ -189,7 +212,7 @@ export default function Settings({
         <section className="settings-section">
           <h3>{tt('about')}</h3>
           <p className="muted small">
-            Anjam v1.0.0 — Go (WebView2) + Capacitor (Android) + Supabase
+            Anjam v1.1.0 — Electron (Windows) + Capacitor (Android) + Supabase
             <br />
             github.com/amirlwf/anjam
           </p>

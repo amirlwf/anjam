@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import type { Lang, SyncStatus, ThemePref } from '../types'
 import { t } from '../lib/i18n'
 import { onSyncStatus } from '../lib/sync'
-import { Alert, Gear, Menu, Moon, Monitor, Refresh, Search, Sun, LogOut } from './Icons'
+import { Alert, Gear, Menu, Moon, Monitor, Refresh, Search, Sun, LogOut, Timer } from './Icons'
+import TimerPanel from './TimerPanel'
+import { fmtLeft, getTimer, onTimer, remainingMs } from '../lib/timer'
 
 function nextTheme(cur: ThemePref): ThemePref {
   return cur === 'light' ? 'dark' : cur === 'dark' ? 'system' : 'light'
@@ -38,8 +40,11 @@ export default function Header({
     () => (localStorage.getItem('anjam.theme') as ThemePref) || 'system'
   )
   const [sync, setSync] = useState<SyncStatus>({ state: 'disabled', lastSyncAt: null, pending: 0, error: null })
+  const [tm, setTm] = useState(getTimer())
+  const [timerOpen, setTimerOpen] = useState(false)
 
   useEffect(() => onSyncStatus(setSync), [])
+  useEffect(() => onTimer(setTm), [])
 
   function cycleTheme() {
     const nx = nextTheme(theme)
@@ -51,6 +56,7 @@ export default function Header({
   const syncClass = sync.state === 'error' ? 'bad' : sync.state === 'offline' ? 'warn' : 'ok'
 
   return (
+    <>
     <header className="topbar">
       <button className="icon-btn only-mobile" onClick={onMenu} aria-label={tt('openMenu')}>
         <Menu />
@@ -83,6 +89,17 @@ export default function Header({
                     : tt('synced')}
           </span>
         </button>
+        <button
+          className={`icon-btn timer-btn ${tm.running ? 'is-running' : ''}`}
+          onClick={() => setTimerOpen(true)}
+          title={tt('timer')}
+          aria-label={tt('timer')}
+        >
+          <Timer />
+          {(tm.running || tm.leftMs > 0) && (
+            <span className="timer-pill">{fmtLeft(remainingMs(), lang === 'fa')}</span>
+          )}
+        </button>
         <button className="icon-btn" onClick={cycleTheme} title={tt('theme')}>
           <ThemeIcon />
         </button>
@@ -104,5 +121,7 @@ export default function Header({
         </div>
       </div>
     </header>
+      <TimerPanel lang={lang} open={timerOpen} onClose={() => setTimerOpen(false)} />
+    </>
   )
 }

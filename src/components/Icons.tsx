@@ -6,7 +6,7 @@ const base = (p: SVGProps<SVGSVGElement>) => ({
   viewBox: '0 0 24 24',
   fill: 'none',
   stroke: 'currentColor',
-  strokeWidth: 1.8,
+  strokeWidth: 1.6,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
   ...p,
@@ -144,5 +144,16 @@ export const LogOut = (p: SVGProps<SVGSVGElement>) => (
 export const Download = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+  </svg>
+)
+export const Timer = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="14" r="8" />
+    <path d="M12 10.5V14l2.4 1.6M9 2h6M12 2v3.5" />
+  </svg>
+)
+export const ChevronLeft = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="m15 6-6 6 6 6" />
   </svg>
 )
