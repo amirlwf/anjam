@@ -148,7 +148,7 @@ create table if not exists public.study_slots (
   subject_id  uuid references public.study_subjects (id) on delete set null,
   weekday     int  not null check (weekday between 0 and 6),
   start       text not null,
-  end         text not null,
+  "end"       text not null,
   room        text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
