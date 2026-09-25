@@ -19,7 +19,8 @@ import Workout from './components/Workout'
 import TaskList from './components/TaskList'
 import TaskDetail from './components/TaskDetail'
 import Settings from './components/Settings'
-import { Plus } from './components/Icons'
+import { Plus, X } from './components/Icons'
+import Advisory from './components/Advisory'
 import logo from './assets/logo.png'
 
 type Phase = 'boot' | 'setup' | 'auth' | 'app'
@@ -62,6 +63,7 @@ export default function App() {
   const [view, setView] = useState<View>({ kind: 'today' })
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const [composerOpen, setComposerOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
@@ -277,13 +279,38 @@ export default function App() {
           aria-label={t(lang, 'addTask')}
           onClick={() => {
             const el = document.getElementById('quickadd-input')
-            el?.focus({ preventScroll: true })
-            el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            if (el) {
+              el.focus({ preventScroll: true })
+              el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            } else {
+              // US1/FR-01: on views with no inline composer the button used to
+              // do nothing at all (focus() on a missing node). Fall back to a
+              // modal that reuses QuickAdd and its NLP parser.
+              setComposerOpen(true)
+            }
           }}
         >
           <Plus width={24} height={24} />
         </button>
       </div>
+      {/* US2/FR-04-06: the 21:00-08:00 night advisory. Always mounted so its
+          scheduler keeps running even while another modal is open. */}
+      <Advisory lang={lang} />
+
+      {/* US1/FR-01: composer for views that have no inline one (FAB). */}
+      {composerOpen && (
+        <div className="modal-overlay" onClick={() => setComposerOpen(false)}>
+          <div className="modal quickadd-modal" onClick={(e) => e.stopPropagation()} data-testid="quickadd-modal">
+            <div className="modal-head">
+              <h2>{t(lang, 'addTask')}</h2>
+              <button className="icon-btn" aria-label={t(lang, 'close')} onClick={() => setComposerOpen(false)}>
+                <X />
+              </button>
+            </div>
+            <QuickAdd lang={lang} defaultListId={listId} />
+          </div>
+        </div>
+      )}
       {selected && <TaskDetail lang={lang} taskId={selected} onClose={() => setSelected(null)} />}
       {settingsOpen && (
         <Settings

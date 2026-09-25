@@ -1,5 +1,6 @@
 import type { HabitRow, HomeworkRow, ImportantDateRow, LabelRow, ListRow, Priority, Recurrence, StudyLogRow, StudySlotRow, StudySubjectRow, Table, TaskRow, View, WorkoutLogRow, WorkoutPlanRow } from '../types'
-import { idbGetAll, idbPut } from './idb'
+import { idbDelete, idbGetAll, idbPut } from './idb'
+import { migrateToPeriods, withPeriodCount } from './periods'
 import { enqueue, onPulled } from './sync'
 import { nowISO, tsOf, uuid, sameDay, startOfDay, localDate } from './util'
 import { nextOccurrence } from './nlp'
@@ -63,9 +64,24 @@ export const store = {
         idbGetAll<WorkoutPlanRow>('workout_plans'),
         idbGetAll<WorkoutLogRow>('workout_logs'),
       ])
+    // v1.3 stored clock times; v1.4 stores ring numbers. Convert once, on
+    // the way in. `migrateToPeriods` returns the same array when there is
+    // nothing to do, so a healthy database costs zero writes on every boot.
+    const converted = migrateToPeriods(slots)
+    if (converted !== slots) {
+      const before = new Map(slots.map((r) => [r.id, r]))
+      const kept = new Set(converted.map((r) => r.id))
+      const written = converted.filter((r) => before.get(r.id)?.period !== r.period)
+      const dropped = slots.filter((r) => !kept.has(r.id))
+      await Promise.all([
+        ...written.map((r) => persist('study_slots', r)),
+        ...dropped.map((r) => idbDelete('study_slots', r.id)),
+      ])
+    }
+
     set({
       ready: true, userId, tasks, lists, labels, habits, dates,
-      subjects, slots, homework, studyLogs, workoutPlans, workoutLogs,
+      subjects, slots: converted, homework, studyLogs, workoutPlans, workoutLogs,
     })
   },
 }
@@ -403,29 +419,73 @@ export function liveSlots(): StudySlotRow[] {
   return state.slots.filter((x) => !x.deleted)
 }
 
-export async function addStudySlot(input: {
-  subject_id?: string | null
-  weekday: number
-  start: string
-  end: string
-  room?: string | null
-}): Promise<StudySlotRow> {
-  const now = nowISO()
-  const row: StudySlotRow = {
+const makePeriodRow = (weekday: number, period: number): StudySlotRow => {
+  const ts = nowISO()
+  return {
     id: uuid(),
     user_id: state.userId,
-    subject_id: input.subject_id ?? null,
-    weekday: input.weekday,
-    start: input.start,
-    end: input.end,
-    room: input.room?.trim() || null,
-    created_at: now,
-    updated_at: now,
+    subject_id: null,
+    weekday,
+    period,
+    start: null,
+    end: null,
+    room: null,
+    created_at: ts,
+    updated_at: ts,
     deleted: false,
   }
+}
+
+/**
+ * Give a weekday exactly `count` rings (FR-08). The count IS the schedule:
+ * there is no clock time to set, so growing a day appends blank rings and
+ * shrinking it drops the surplus from the tail — never the head, which would
+ * silently renumber the morning.
+ */
+export async function setStudyDayCount(weekday: number, count: number): Promise<void> {
+  const ts = nowISO()
+  const { rows, added, removed } = withPeriodCount(state.slots, weekday, count, (p) =>
+    makePeriodRow(weekday, p),
+  )
+  const addedIds = new Set(added.map((r) => r.id))
+  const removedIds = new Set(removed)
+  const otherDays = state.slots.filter((s) => s.weekday !== weekday)
+  const previouslyDeleted = state.slots.filter((s) => s.weekday === weekday && s.deleted)
+  const trimmed = state.slots
+    .filter((s) => removedIds.has(s.id))
+    .map((s) => ({ ...s, deleted: true, updated_at: ts }))
+  // untouched existing rings are still written back only if their period
+  // changed, which it cannot here — so persist just the new and the trimmed.
+  set({ slots: [...otherDays, ...rows, ...trimmed, ...previouslyDeleted] })
+  await Promise.all([
+    ...added.map((r) => persist('study_slots', r)),
+    ...trimmed.map((r) => persist('study_slots', r)),
+    ...rows.filter((r) => !addedIds.has(r.id) && r.room).map((r) => persist('study_slots', r)),
+  ])
+}
+
+/** Put a subject into ring `period` of `weekday` (null clears the ring). */
+export async function setStudyPeriod(
+  weekday: number,
+  period: number,
+  subject_id: string | null,
+  room?: string | null,
+): Promise<void> {
+  const existing = state.slots.find(
+    (s) => !s.deleted && s.weekday === weekday && s.period === period,
+  )
+  if (existing) {
+    await updateStudySlot(existing.id, {
+      subject_id,
+      ...(room !== undefined ? { room: room?.trim() || null } : {}),
+    })
+    return
+  }
+  const row = makePeriodRow(weekday, period)
+  row.subject_id = subject_id
+  if (room !== undefined) row.room = room?.trim() || null
   set({ slots: [...state.slots, row] })
   await persist('study_slots', row)
-  return row
 }
 
 export async function updateStudySlot(id: string, patch: Partial<StudySlotRow>): Promise<void> {

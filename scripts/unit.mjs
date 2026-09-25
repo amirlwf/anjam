@@ -13,6 +13,9 @@ import {
   WINDOW_START, WINDOW_END
 } from '../src/lib/advisory.ts'
 import { buildNight } from '../src/lib/weather.ts'
+import {
+  migrateToPeriods, periodsOfDay, periodCount, withPeriodCount, MAX_PERIODS
+} from '../src/lib/periods.ts'
 
 let pass = 0
 const failures = []
@@ -231,6 +234,117 @@ if (e2e) {
   check('advisory: built outlook triggers a note', got !== null, 'snow at -3 should speak')
 }
 
+/* ------------------------------------------------ study timetable (US3) */
+/* FR-08: an old clock timetable must convert to period indices in a way that
+ * is (a) deterministic — the same file converted twice gives the same day,
+ * (b) idempotent — the second run changes nothing at all, and (c) ordered
+ * — ring N is always the class that used to come Nth, never a subject that
+ * happened to sort earlier. A migration that reshuffles a student's day is
+ * worse than no migration, so these are hard assertions, not smoke tests. */
+
+const slot = (id, weekday, start, period, extra = {}) => ({
+  id,
+  user_id: 'u',
+  subject_id: extra.subject_id ?? null,
+  weekday,
+  period,
+  start,
+  end: extra.end ?? null,
+  room: extra.room ?? null,
+  created_at: extra.created_at ?? '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+  deleted: extra.deleted ?? false,
+})
+
+/* a real v1.3 Monday: five classes, clock-ordered, no `period` field */
+const legacyMonday = [
+  slot('a', 0, '08:00', undefined),
+  slot('b', 0, '09:00', undefined),
+  slot('c', 0, '10:30', undefined),
+  slot('d', 0, '12:00', undefined),
+  slot('e', 0, '13:15', undefined),
+].map((r) => { const { period, ...rest } = r; return rest })
+
+const m1 = migrateToPeriods(legacyMonday)
+eq('periods: legacy monday gains 5 rings', m1.length, 5)
+eq('periods: ring 1 is the 08:00 class', m1.find((r) => r.id === 'a').period, 1)
+eq('periods: ring 2 is the 09:00 class', m1.find((r) => r.id === 'b').period, 2)
+eq('periods: ring 3 is the 10:30 class', m1.find((r) => r.id === 'c').period, 3)
+eq('periods: ring 4 is the 12:00 class', m1.find((r) => r.id === 'd').period, 4)
+eq('periods: ring 5 is the 13:15 class', m1.find((r) => r.id === 'e').period, 5)
+
+/* (b) idempotent: same reference back means nothing to rewrite */
+check('periods: second run is a no-op', migrateToPeriods(m1) === m1, 'expected identity')
+
+/* (a) deterministic: shuffling the input must not change the output */
+const shuffled = [m1[3], m1[0], m1[4], m1[1], m1[2]]
+const m2 = migrateToPeriods(shuffled)
+eq('periods: order survives a shuffled input',
+  JSON.stringify(periodsOfDay(m2, 0).map((r) => r.id)),
+  JSON.stringify(['a', 'b', 'c', 'd', 'e']))
+
+/* a day that is already numbered is never re-derived from the clock, even
+ * when the clock order disagrees — otherwise the second run would reshuffle */
+const numbered = [
+  slot('x', 0, '13:00', 1),
+  slot('y', 0, '08:00', 2),
+]
+const nm = migrateToPeriods(numbered)
+eq('periods: a migrated day keeps its rings', nm.find((r) => r.id === 'x').period, 1)
+eq('periods: a migrated day keeps its rings (2)', nm.find((r) => r.id === 'y').period, 2)
+
+/* days must never bleed into each other */
+const twoDays = migrateToPeriods([
+  slot('mo1', 1, '08:00', undefined),
+  slot('su1', 0, '08:00', undefined),
+  slot('su2', 0, '09:00', undefined),
+].map((r) => { const { period, ...rest } = r; return rest }))
+eq('periods: Sunday is its own numbering', periodCount(twoDays, 0), 2)
+eq('periods: Monday is its own numbering', periodCount(twoDays, 1), 1)
+
+/* a tie on `start` must still be stable: created_at, then id */
+const tied = [
+  slot('z', 0, '08:00', undefined, { created_at: '2026-01-02' }),
+  slot('a', 0, '08:00', undefined, { created_at: '2026-01-01' }),
+].map((r) => { const { period, ...rest } = r; return rest })
+eq('periods: ties break on created_at', migrateToPeriods(tied).find((r) => r.id === 'a').period, 1)
+// idempotency is about the SECOND run changing nothing: same array back,
+// not "two freshly-built arrays that happen to look alike".
+const tied1 = migrateToPeriods(tied)
+const tied2 = migrateToPeriods(tied1)
+check('periods: tie-break is idempotent', tied2 === tied1, 'second run rebuilt the array')
+
+/* deleted rows never occupy a ring */
+const withDeleted = migrateToPeriods([
+  slot('gone', 0, '08:00', undefined, { deleted: true }),
+  slot('here', 0, '09:00', undefined),
+].map((r) => { const { period, ...rest } = r; return rest }))
+eq('periods: deleted rows are skipped', periodCount(withDeleted, 0), 1)
+eq('periods: surviving row becomes ring 1', periodsOfDay(withDeleted, 0)[0].period, 1)
+
+/* more than MAX_PERIODS in one day: the overflow is dropped, not clamped
+ * onto the last ring (two classes at ring 12 would lose one silently) */
+const many = Array.from({ length: MAX_PERIODS + 3 }, (_, i) =>
+  slot('m' + i, 0, String(7 + i).padStart(2, '0') + ':00', undefined)
+).map((r) => { const { period, ...rest } = r; return rest })
+eq('periods: capped at MAX_PERIODS', periodCount(migrateToPeriods(many), 0), MAX_PERIODS)
+
+/* ring N is always rendered in order, even out of storage order */
+eq('periods: periodsOfDay sorts by ring',
+  JSON.stringify(periodsOfDay([slot('p3', 0, null, 3), slot('p1', 0, null, 1), slot('p2', 0, null, 2)], 0).map((r) => r.period)),
+  JSON.stringify([1, 2, 3]))
+
+/* growing/shrinking a day */
+const day = migrateToPeriods(legacyMonday)
+const grow = withPeriodCount(day, 0, 7, (p) => slot('n' + p, 0, null, p))
+eq('periods: grow adds blank rings', grow.added.length, 2)
+eq('periods: grow keeps existing rings', grow.rows.filter((r) => r.period <= 5).length, 5)
+eq('periods: grow result is 7 wide', grow.rows.length, 7)
+const shrink = withPeriodCount(day, 0, 3, (p) => slot('n' + p, 0, null, p))
+eq('periods: shrink trims the tail', shrink.removed.length, 2)
+eq('periods: shrink result is 3 wide', shrink.rows.length, 3)
+eq('periods: shrink removes the last rings, not the first',
+  JSON.stringify(shrink.rows.map((r) => r.id)), JSON.stringify(['a', 'b', 'c']))
 /* ------------------------------------------------------- report */
 if (failures.length) {
   console.error(`UNIT_FAIL ${pass} passed, ${failures.length} failed`)

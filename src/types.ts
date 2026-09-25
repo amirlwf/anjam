@@ -100,8 +100,13 @@ export interface StudySlotRow {
   user_id: string
   subject_id: string | null
   weekday: number
-  start: string // 'HH:MM'
-  end: string // 'HH:MM'
+  /** 1-based period index (زنگ ۱ … زنگ ۱۲). FR-08 — the schedule is the
+   *  period number itself; there is no clock time anywhere in the Study tab. */
+  period: number
+  /** Legacy clock times. Kept only so a v1.3 timetable can be ordered once
+   *  during migration; never rendered, never edited. */
+  start: string | null // 'HH:MM'
+  end: string | null // 'HH:MM'
   room: string | null
   created_at: string
   updated_at: string

@@ -555,14 +555,41 @@ async function main() {
   await pressEnter()
   await sleep(450)
   check('study subject added', await evalJs(`document.querySelectorAll('.subj-chip').length >= 1`) === true)
-  // timetable slot
+  // ---- US3 / FR-08: the timetable is rings, not a clock ----
   await setReact('[data-testid=study-tt] .slot-form select', await evalJs(`document.querySelectorAll('[data-testid=study-tt] .slot-form select')[0]?.options[1]?.value || ''`), 'change')
-  await setReact('[data-testid=study-tt] .slot-form input[type=time]', '10:00', 'input', 0)
-  await setReact('[data-testid=study-tt] .slot-form input[type=time]', '11:30', 'input', 1)
   await sleep(250)
   await evalJs(`(() => { const b = document.querySelector('[data-testid=slot-add]'); b && b.click(); return !!b })()`)
   await sleep(500)
-  check('timetable slot added', await evalJs(`document.querySelectorAll('[data-testid=slot-row]').length >= 1`) === true)
+  check('timetable ring added', await evalJs(`document.querySelectorAll('[data-testid=slot-row]').length >= 1`) === true)
+
+  /* T025 — N rings must render N cells, in order, each labelled with its
+   * ring number. Driving the day's own count control is what makes this a
+   * real check of the grid rather than of whatever happened to be stored. */
+  await setReact('[data-testid=day-count-0]', '5', 'change')
+  await sleep(600)
+  const mondayRings = JSON.parse(await evalJs(`JSON.stringify({
+    count: document.querySelector('[data-testid=day-count-0]')?.value ?? null,
+    periods: [...document.querySelectorAll('[data-testid^="period-subject-0-"]')]
+      .map((el) => Number(el.dataset.testid.split('-').pop())),
+    labels: [...document.querySelectorAll('[data-testid=period-label]')].map((el) => el.textContent.trim()),
+    subjects: [...document.querySelectorAll('[data-testid^="period-subject-0-"]')].map((el) => el.value),
+  })`))
+  check('period grid renders N cells for N rings', mondayRings.count === '5' && mondayRings.periods.length === 5, JSON.stringify(mondayRings.periods))
+  check('period cells are in ring order', JSON.stringify(mondayRings.periods) === JSON.stringify([1, 2, 3, 4, 5]), JSON.stringify(mondayRings.periods))
+  check('every ring carries a ring label', mondayRings.labels.length >= 5 && mondayRings.labels.every((l) => /زنگ|Period/.test(l)), JSON.stringify(mondayRings.labels.slice(0, 5)))
+  check('the picked subject landed in ring 1', mondayRings.subjects[0] !== '', JSON.stringify(mondayRings.subjects))
+
+  /* T026 — FR-09: no clock anywhere in the Study tab. Checked against the
+   * rendered text as well as the inputs, because a raw HH:MM string in the
+   * markup would still be a timer the student never asked for. */
+  const studyClock = JSON.parse(await evalJs(`JSON.stringify({
+    timeInputs: document.querySelectorAll('[data-testid=study-view] input[type=time]').length,
+    hhmm: (document.querySelector('[data-testid=study-view]')?.innerText || '').match(/\\d{1,2}:\\d{2}/g) || [],
+    dayCounters: document.querySelectorAll('[data-testid=study-view] .tt-count select').length,
+  })`))
+  check('study tab has zero clock inputs', studyClock.timeInputs === 0, String(studyClock.timeInputs))
+  check('study tab renders no HH:MM text', studyClock.hhmm.length === 0, JSON.stringify(studyClock.hhmm))
+  check('every school day exposes a ring count', studyClock.dayCounters === 7, String(studyClock.dayCounters))
   await shot('22-study-timetable-desktop.png')
 
   // ---- homework tab ----
@@ -741,11 +768,11 @@ async function main() {
 
   const motionOk = await evalJs(`(() => {
     const btns = [...document.querySelectorAll('.settings-section .seg-btn')];
-    const off = btns.find(b => /^(کم|Minimal)$/.test(b.textContent.trim()));
+    const off = btns.find(b => /^(غیرفعال|Off)$/.test(b.textContent.trim()));
     if (!off) return 'no-off-btn';
     off.click();
     const gone = document.documentElement.dataset.motion === 'off';
-    const on = btns.find(b => /^(نرم|Smooth)$/.test(b.textContent.trim()));
+    const on = btns.find(b => /^(فعال|On)$/.test(b.textContent.trim()));
     on && on.click();
     return gone && document.documentElement.dataset.motion !== 'off';
   })()`)
@@ -795,6 +822,100 @@ async function main() {
   check('narrow 360 no overflow', nr.ok, 'w=' + nr.w)
   console.log('NARROW_FILE:', await shot('19-mobile-360.png'))
   await send('Emulation.clearDeviceMetricsOverride')
+
+  /* ---------------------------------------------------------------
+   * US1 / FR-01 — the FAB must produce a usable composer on EVERY view.
+   *
+   * The original defect: on non-task views there is no #quickadd-input,
+   * so focus() and scrollIntoView() silently did nothing and the button
+   * was dead. This walks every nav item and clicks the FAB for real.
+   * --------------------------------------------------------------- */
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
+  await sleep(500)
+  {
+    const names = JSON.parse(await evalJs(`JSON.stringify([...document.querySelectorAll('.nav-item')].map(n => n.textContent.trim()))`))
+    const dead = []
+    const opened = []
+    for (const name of names) {
+      await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => x.textContent.trim() === ${JSON.stringify(name)}); if (n) n.click(); return 1 })()`)
+      await sleep(350)
+      const hasFab = await evalJs(`(() => { const f = document.querySelector('.fab'); if (!f) return false; const r = f.getBoundingClientRect(); return r.width > 0 && r.height > 0 })()`)
+      if (!hasFab) continue
+      await evalJs(`(() => { document.querySelector('.fab').click(); return 1 })()`)
+      await sleep(400)
+      const after = JSON.parse(await evalJs(`JSON.stringify({ modal: !!document.querySelector('[data-testid=quickadd-modal]'), focused: document.activeElement && document.activeElement.id === 'quickadd-input' })`))
+      if (after.modal || after.focused) opened.push(name)
+      else dead.push(name)
+      await evalJs(`(() => { const b = document.querySelector('[data-testid=quickadd-modal] .modal-head .icon-btn'); if (b) b.click(); return 1 })()`)
+      await sleep(200)
+    }
+    check('FAB opens a composer on every view', dead.length === 0 && opened.length > 0, `ok=${opened.length} dead=${dead.join(',')}`)
+  }
+  await send('Emulation.clearDeviceMetricsOverride')
+  await sleep(500)
+
+  /* ---------------------------------------------------------------
+   * US2 / FR-04-06 — the 21:00-08:00 night advisory.
+   *
+   * Five properties, each its own check, because "it showed a popup"
+   * is not the feature: the RIGHT popup, ONLY inside the window,
+   * ONLY when the night is worth mentioning, and NOTHING when the
+   * weather or the network is unavailable (FR-19), at most once an
+   * hour (FR-04). Clocks are built as local Date objects so the
+   * check holds in any timezone.
+   * --------------------------------------------------------------- */
+  const seedNight = (night) => `(() => {
+    const w = { temp: 12, hi: 15, lo: 9, code: 95, wind: 40, place: 'Tehran', at: Date.now(), loc: { lat: 35.7, lon: 51.4 }, night: ${JSON.stringify(night)} };
+    localStorage.setItem('anjam.weather', JSON.stringify({ w, loc: { lat: 35.7, lon: 51.4, place: 'Tehran' } }));
+    localStorage.removeItem('anjam.advisory.lastRun');
+    localStorage.removeItem('anjam.advisory.lastKey');
+    return 1 })()`
+  const runAt = (h, m) => `window.__anjamAdvisory.run(new Date(2026, 8, 25, ${h}, ${m || 0}).getTime())`
+  const advisoryVisible = async () => {
+    await sleep(450)
+    return JSON.parse(await evalJs(`JSON.stringify({ shown: !!document.querySelector('[data-testid=advisory]'), sev: document.querySelector('[data-testid=advisory]')?.dataset.sev || null, text: document.querySelector('[data-testid=advisory-text]')?.textContent || '' })`))
+  }
+
+  const STORM = { tempMin: 9, tempMax: 15, precipProb: 95, precipMm: 8, windMax: 70, humidity: 96, uvIndex: 0, isDay: false, nightCode: 95 }
+  const CALM = { tempMin: 16, tempMax: 21, precipProb: 0, precipMm: 0, windMax: 8, humidity: 55, uvIndex: 0, isDay: false, nightCode: 0 }
+
+  await evalJs(seedNight(STORM))
+  await evalJs(runAt(21, 5))
+  const inWindow = await advisoryVisible()
+  check('advisory speaks at 21:05 with a storm', inWindow.shown === true, JSON.stringify(inWindow))
+  check('advisory marks the storm as top severity', inWindow.sev === '1', inWindow.sev)
+  check('advisory carries prose, not a key', inWindow.text.length > 6 && !/^adv[A-Z]/.test(inWindow.text), inWindow.text)
+  console.log('ADVISORY_FILE:', await shot('20-advisory.png'))
+
+  await evalJs(`(() => { window.__anjamAdvisory.hide(); localStorage.removeItem('anjam.advisory.lastRun'); return 1 })()`)
+  await evalJs(runAt(12, 0))
+  const noon = await advisoryVisible()
+  check('advisory silent at 12:00', noon.shown === false, JSON.stringify(noon))
+
+  await evalJs(`(() => { window.__anjamAdvisory.hide(); localStorage.removeItem('anjam.advisory.lastRun'); return 1 })()`)
+  await evalJs(runAt(20, 55))
+  const before = await advisoryVisible()
+  check('advisory silent at 20:55', before.shown === false, JSON.stringify(before))
+
+  await evalJs(seedNight(CALM))
+  await evalJs(runAt(22, 0))
+  const calm = await advisoryVisible()
+  check('advisory silent on a calm night', calm.shown === false, JSON.stringify(calm))
+
+  await evalJs(`(() => { localStorage.removeItem('anjam.weather'); localStorage.removeItem('anjam.advisory.lastRun'); localStorage.removeItem('anjam.advisory.lastKey'); window.__anjamAdvisory.hide(); return 1 })()`)
+  await evalJs(runAt(21, 30))
+  const noWeather = await advisoryVisible()
+  check('advisory silent without weather data', noWeather.shown === false, JSON.stringify(noWeather))
+
+  await evalJs(seedNight(STORM))
+  await evalJs(`(() => { localStorage.removeItem('anjam.advisory.lastRun'); window.__anjamAdvisory.hide(); return 1 })()`)
+  await evalJs(runAt(21, 10))
+  const first = await advisoryVisible()
+  await evalJs(`(() => { window.__anjamAdvisory.hide(); return 1 })()`)
+  await evalJs(runAt(21, 40))
+  const second = await advisoryVisible()
+  check('advisory throttles to once an hour', first.shown === true && second.shown === false, JSON.stringify({ first: first.shown, second: second.shown }))
+  await evalJs(`(() => { window.__anjamAdvisory.hide(); localStorage.removeItem('anjam.advisory.lastRun'); return 1 })()`)
 
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i

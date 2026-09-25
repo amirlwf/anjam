@@ -238,7 +238,9 @@ async function scheduleOne(d: Desired): Promise<void> {
   planned.set(d.id, { kind: 'timeout', at: d.at })
 }
 
-function notify(title: string, body: string): void {
+/** Best-effort native/web notification. Shared by alarms and the
+ *  v1.4.0 advisory so both go through exactly one permission path. */
+export function notify(title: string, body: string): void {
   try {
     if (typeof Notification !== 'undefined') {
       if (Notification.permission === 'granted') {

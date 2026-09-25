@@ -9,8 +9,8 @@ import {
   liveStudyLogs,
   addStudySubject,
   destroyStudySubject,
-  addStudySlot,
-  destroyStudySlot,
+  setStudyDayCount,
+  setStudyPeriod,
   addHomework,
   updateHomework,
   destroyHomework,
@@ -20,6 +20,7 @@ import {
 } from '../lib/store'
 import { localDate } from '../lib/util'
 import { Plus, X } from './Icons'
+import { MAX_PERIODS, periodsOfDay } from '../lib/periods'
 
 function useStore() {
   return useSyncExternalStore(store.subscribe, store.getState)
@@ -65,19 +66,15 @@ export default function Study({ lang }: { lang: Lang }) {
   /* ---------- timetable form ---------- */
   const [fSubject, setFSubject] = useState('')
   const [fDay, setFDay] = useState(String(fDayInit))
-  const [fStart, setFStart] = useState('08:00')
-  const [fEnd, setFEnd] = useState('09:30')
-  const [fRoom, setFRoom] = useState('')
+
+  /** Land the chosen subject in the first empty ring of that day, or open
+  *  a new one at the end if every ring is taken. No clock involved. */
   async function submitSlot() {
-    if (!fStart || !fEnd) return
-    await addStudySlot({
-      subject_id: fSubject || null,
-      weekday: Number(fDay),
-      start: fStart,
-      end: fEnd,
-      room: fRoom,
-    })
-    setFRoom('')
+    const wd = Number(fDay)
+    const rings = periodsOfDay(slots, wd)
+    const free = rings.find((r) => !r.subject_id)
+    await setStudyPeriod(wd, free ? free.period : Math.min(rings.length + 1, MAX_PERIODS), fSubject || null)
+    setFSubject('')
   }
 
   /* ---------- homework form ---------- */
@@ -137,32 +134,65 @@ export default function Study({ lang }: { lang: Lang }) {
     </div>
   )
 
+  /** One weekday = one column of rings. The number of rings is the whole
+   *  timetable: no clock, no day-of-week counter (FR-08/09). */
   const renderDay = (d: number) => {
-    const daySlots = slots
-      .filter((s) => s.weekday === d)
-      .sort((a, b) => (a.start < b.start ? -1 : 1))
+    const rings = periodsOfDay(slots, d)
     return (
       <div key={d} className={`tt-day ${d === weekIdx() ? 'is-today' : ''} ${d >= 5 ? 'is-rest' : ''}`}>
         <div className="tt-day-h">{tt(`wd${d}`)}</div>
-        {daySlots.length === 0 && <div className="tt-none">—</div>}
-        {daySlots.map((s) => {
-          const subj = s.subject_id ? subjById.get(s.subject_id) : null
+
+        <div className="tt-count">
+          <span className="muted small">{tt('periodLabel')}</span>
+          <select
+            value={rings.length}
+            aria-label={`${tt('periodLabel')} - ${tt(`wd${d}`)}`}
+            data-testid={`day-count-${d}`}
+            onChange={(e) => void setStudyDayCount(d, Number(e.target.value))}
+          >
+            {Array.from({ length: MAX_PERIODS }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {toFaDigits(n)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {rings.length === 0 && <div className="tt-none">—</div>}
+        {rings.map((r) => {
+          const subj = r.subject_id ? subjById.get(r.subject_id) : null
           return (
-            <div key={s.id} className="tt-slot" data-testid="slot-row" style={{ borderColor: subj?.color }}>
-              <b>{subj ? subj.name : '•'}</b>
-              <span className="muted small">
-                {toFaDigits(s.start)} – {toFaDigits(s.end)}
-                {s.room ? ` · ${s.room}` : ''}
+            <div key={r.id} className="tt-slot" data-testid="slot-row" data-period={r.period} style={{ borderColor: subj?.color }}>
+              <span className="tt-ring" data-testid="period-label">
+                {tt('periodLabel')} {toFaDigits(r.period)}
               </span>
-              <button className="chip-x" aria-label={tt('delete')} onClick={() => void destroyStudySlot(s.id)}>
-                <X width={11} height={11} />
-              </button>
+              <select
+                className="tt-subject"
+                value={r.subject_id ?? ''}
+                aria-label={`${tt('periodLabel')} ${r.period}`}
+                data-testid={`period-subject-${d}-${r.period}`}
+                onChange={(e) => void setStudyPeriod(d, r.period, e.target.value || null)}
+              >
+                <option value="">{tt('subjectPick')}</option>
+                {subjects.map((sub) => (
+                  <option key={sub.id} value={sub.id}>
+                    {sub.name}
+                  </option>
+                ))}
+              </select>
+              {subj && (
+                <button className="chip-x" aria-label={tt('delete')} onClick={() => void setStudyPeriod(d, r.period, null)}>
+                  <X width={11} height={11} />
+                </button>
+              )}
             </div>
           )
         })}
       </div>
     )
   }
+
+
 
   return (
     <div className="study-wrap" data-testid="study-view">
@@ -200,9 +230,9 @@ export default function Study({ lang }: { lang: Lang }) {
           <div className="slot-form" data-testid="slot-form">
             <select value={fSubject} onChange={(e) => setFSubject(e.target.value)} aria-label={tt('subjectPick')}>
               <option value="">{tt('subjectPick')}</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
+              {subjects.map((sub) => (
+                <option key={sub.id} value={sub.id}>
+                  {sub.name}
                 </option>
               ))}
             </select>
@@ -213,36 +243,27 @@ export default function Study({ lang }: { lang: Lang }) {
                 </option>
               ))}
             </select>
-            <input type="time" value={fStart} onChange={(e) => setFStart(e.target.value)} aria-label={tt('slotFrom')} />
-            <input type="time" value={fEnd} onChange={(e) => setFEnd(e.target.value)} aria-label={tt('slotTo')} />
-            <input
-              value={fRoom}
-              onChange={(e) => setFRoom(e.target.value)}
-              placeholder={tt('room')}
-              aria-label={tt('room')}
-            />
             <button className="btn primary small" data-testid="slot-add" onClick={() => void submitSlot()}>
               {tt('slotAdd')}
             </button>
           </div>
 
-          {slots.length === 0 ? (
+          {!slots.some((x) => x.subject_id) && (
             <p className="empty-line muted" data-testid="tt-empty">
               {tt('noSlots')}
             </p>
-          ) : (
-            <>
-              <div className="tt-grid">
-                {SCHOOL.map(renderDay)}
-              </div>
-              <div className="tt-rest" data-testid="tt-rest">
-                <div className="tt-rest-h">{tt('ttRest')}</div>
-                <div className="tt-grid tt-grid-rest">
-                  {REST.map(renderDay)}
-                </div>
-              </div>
-            </>
           )}
+          {/* The grid is always mounted: an empty day still shows its rings,
+              so a student can see how many periods the day has and fill them. */}
+          <div className="tt-grid" data-testid="tt-grid">
+            {SCHOOL.map(renderDay)}
+          </div>
+          <div className="tt-rest" data-testid="tt-rest">
+            <div className="tt-rest-h">{tt('ttRest')}</div>
+            <div className="tt-grid tt-grid-rest">
+              {REST.map(renderDay)}
+            </div>
+          </div>
         </div>
       )}
 
