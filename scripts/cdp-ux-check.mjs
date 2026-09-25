@@ -917,6 +917,95 @@ async function main() {
   check('advisory throttles to once an hour', first.shown === true && second.shown === false, JSON.stringify({ first: first.shown, second: second.shown }))
   await evalJs(`(() => { window.__anjamAdvisory.hide(); localStorage.removeItem('anjam.advisory.lastRun'); return 1 })()`)
 
+  /* ---------------------------------------------------------------
+   * US6 / FR-17 / FR-19 — the 21:00 school-closure alert.
+   *
+   * The interesting half of this feature is what must NOT happen: an empty
+   * feed, a blocked network and a different province all have to produce
+   * silence. A 21:00 popup cannot be dismissed as a nuisance and cannot be
+   * an error message, so each of those is asserted on its own.
+   * --------------------------------------------------------------- */
+  await evalJs(`(() => {
+    window.__notifLog = []
+    window.Notification = function (title, opts) {
+      window.__notifLog.push({ title, body: opts && opts.body })
+      this.close = () => {}
+    }
+    Object.defineProperty(window.Notification, 'permission', { value: 'granted', configurable: true })
+    return 1
+  })()`)
+  const newsReset = (region) => `(() => {
+    localStorage.setItem('anjam.news.region', ${JSON.stringify(region)})
+    localStorage.removeItem('anjam.news.lastCheck')
+    localStorage.removeItem('anjam.news.lastIds')
+    window.__anjamNews.hide()
+    window.__notifLog = []
+    window.fetch = window.__origFetch || window.fetch
+    return 1 })()`
+  const newsItem = (title) => [{
+    title,
+    link: 'https://example.com/n1',
+    pubDate: new Date(Date.now() - 3600e3).toISOString(),
+    source: 'bing.com',
+  }]
+  const newsState = async () => {
+    await sleep(500)
+    return JSON.parse(await evalJs(`JSON.stringify({
+      shown: !!document.querySelector('[data-testid=news-alert]'),
+      text: (document.querySelector('[data-testid=news-alert-text]')?.textContent || '').trim(),
+      link: document.querySelector('[data-testid=news-link]')?.getAttribute('href') || '',
+      source: (document.querySelector('[data-testid=news-source]')?.textContent || '').trim(),
+      notifs: window.__notifLog || [],
+    })`))
+  }
+  await evalJs(`(() => { window.__origFetch = window.fetch; return 1 })()`)
+
+  /* T047 — a real, in-region, fresh closure at 21:00 must speak */
+  await evalJs(newsReset('هشتگرد'))
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  const n47 = await newsState()
+  check('news: 21:00 in-region closure pops up', n47.shown === true, JSON.stringify(n47))
+  check('news: popup shows the headline, not a key', n47.text.length > 8 && !/^news/.test(n47.text), n47.text)
+  check('news: popup links out to the publisher', /^https?:\/\//.test(n47.link), n47.link)
+  check('news: popup names its source', n47.source.length > 0, n47.source)
+  check('news: a native notification is raised too', n47.notifs.length >= 1, JSON.stringify(n47.notifs))
+  console.log('NEWS_FILE:', await shot('21-news-alert.png'))
+
+  /* acknowledge once, and the same headline must not nag again */
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=news-ack]'); if (b) b.click(); return 1 })()`)
+  await sleep(400)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 30).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  const nAck = await newsState()
+  check('news: an acknowledged headline stays silent', nAck.shown === false, JSON.stringify(nAck))
+
+  /* T048 — an empty feed is silence, not an error */
+  await evalJs(newsReset('هشتگرد'))
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), []).then(() => 1)`)
+  const nEmpty = await newsState()
+  check('news: an empty feed is silent', nEmpty.shown === false && nEmpty.notifs.length === 0, JSON.stringify(nEmpty))
+
+  /* T048 — a dead network is silence, not an error */
+  await evalJs(newsReset('هشتگرد'))
+  await evalJs(`(() => { window.fetch = () => Promise.reject(new Error('blocked')); return 1 })()`)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime()).then(() => 1)`)
+  const nDead = await newsState()
+  check('news: a blocked network is silent', nDead.shown === false && nDead.notifs.length === 0, JSON.stringify(nDead))
+  await evalJs(`(() => { window.fetch = window.__origFetch || window.fetch; return 1 })()`)
+
+  /* T049 — an Alborz headline must not alert a Tehran phone */
+  await evalJs(newsReset('تهران'))
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  const nWrong = await newsState()
+  check('news: region mismatch stays silent', nWrong.shown === false && nWrong.notifs.length === 0, JSON.stringify(nWrong))
+
+  /* the check must be impossible outside the night window */
+  await evalJs(newsReset('هشتگرد'))
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 12, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  const nNoon = await newsState()
+  check('news: silent at noon whatever the feed says', nNoon.shown === false, JSON.stringify(nNoon))
+
+  await evalJs(newsReset(''))
+  await evalJs(`(() => { window.fetch = window.__origFetch || window.fetch; return 1 })()`)
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
   const realErrs = consoleErrs.filter((e) => !noise.test(e))

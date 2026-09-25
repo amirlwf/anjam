@@ -21,6 +21,7 @@ import TaskDetail from './components/TaskDetail'
 import Settings from './components/Settings'
 import { Plus, X } from './components/Icons'
 import Advisory from './components/Advisory'
+import NewsAlert from './components/NewsAlert'
 import logo from './assets/logo.png'
 
 type Phase = 'boot' | 'setup' | 'auth' | 'app'
@@ -296,6 +297,7 @@ export default function App() {
       {/* US2/FR-04-06: the 21:00-08:00 night advisory. Always mounted so its
           scheduler keeps running even while another modal is open. */}
       <Advisory lang={lang} />
+      <NewsAlert lang={lang} />
 
       {/* US1/FR-01: composer for views that have no inline one (FAB). */}
       {composerOpen && (

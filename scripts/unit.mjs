@@ -16,6 +16,10 @@ import { buildNight } from '../src/lib/weather.ts'
 import {
   migrateToPeriods, periodsOfDay, periodCount, withPeriodCount, MAX_PERIODS
 } from '../src/lib/periods.ts'
+import {
+  pickAlert, isClosureSignal, regionTerms, dedupeTitles, isFresh, rss2jsonUrl, fetchCandidates,
+  QUERIES,
+} from '../src/lib/news.ts'
 
 let pass = 0
 const failures = []
@@ -345,6 +349,85 @@ eq('periods: shrink trims the tail', shrink.removed.length, 2)
 eq('periods: shrink result is 3 wide', shrink.rows.length, 3)
 eq('periods: shrink removes the last rings, not the first',
   JSON.stringify(shrink.rows.map((r) => r.id)), JSON.stringify(['a', 'b', 'c']))
+/* ---------------------------------------------- school-closure news (US6) */
+/* FR-17/FR-19: silence is the default. A 21:00 popup is intrusive, so the
+ * gate has to be right in BOTH directions — it must fire on a real closure
+ * in the user's own region, and it must stay mute on stale news, on the
+ * wrong province, on a negated headline and on a dead network. */
+
+const NOW = Date.parse('2026-09-25T21:00:00+03:30')
+const ago = (h) => new Date(NOW - h * 3600e3).toISOString()
+const item = (title, ageH = 2, link = 'https://example.com/a') => ({
+  title, link, pubDate: ago(ageH), source: 'bing.com',
+})
+
+/* --- positive: a real closure, in-region, fresh --- */
+check('news: provincial closure fires',
+  pickAlert([item('تعطیلی مدارس البرز در روز شنبه')], 'البرز', NOW) !== null)
+check('news: non-homework closure fires',
+  pickAlert([item('برخی مدارس البرز غیرحضوری شدند')], 'هشتگرد', NOW) !== null)
+check('news: snow-day query fires',
+  pickAlert([item('بارش برف مدارس البرز فردا تعطیلی شد')], 'کرج', NOW) !== null)
+
+/* --- T049: region mismatch must be silent --- */
+check('news: Alborz item does not alert Tehran',
+  pickAlert([item('تعطیلی مدارس البرز در روز شنبه')], 'تهران', NOW) === null)
+check('news: Tehran item does not alert Alborz',
+  pickAlert([item('تعطیلی مدارس تهران در روز شنبه')], 'هشتگرد', NOW) === null)
+
+/* --- weak titles: one keyword is not a signal --- */
+check('news: a lone مدارس headline is silent',
+  pickAlert([item('مدارس ابتدایی استان البرز'), item('مدارس البرز برقرار است')], 'البرز', NOW) === null)
+check('news: start-of-year is not a closure',
+  pickAlert([item('آغاز سال تحصیلی مدارس البرز')], 'البرز', NOW) === null)
+check('news: an explicitly non-closure is silent',
+  pickAlert([item('مدارس البرز تعطیل نیست')], 'البرز', NOW) === null)
+check('news: an opening ceremony is silent',
+  pickAlert([item('افتتاح مدارس البرز با حضور مسئولان')], 'البرز', NOW) === null)
+
+/* --- T048: empty / stale / failing must mean silence, not an error --- */
+eq('news: empty feed is null', pickAlert([], 'البرز', NOW), null)
+eq('news: stale headline is dropped', pickAlert([item('تعطیلی مدارس البرز فردا', 40)], 'البرز', NOW), null)
+eq('news: undated headline is dropped',
+  pickAlert([{ title: 'تعطیلی مدارس البرز', link: '', pubDate: '', source: 'x' }], 'البرز', NOW), null)
+check('news: future-dated headline is dropped',
+  !isFresh(new Date(NOW + 6 * 3600e3).toISOString(), NOW))
+check('news: 23h-old headline is still fresh', isFresh(ago(23), NOW))
+
+/* a failed fetch must resolve to no candidates, never reject */
+const deadFetcher = async () => { throw new Error('network down') }
+check('news: a dead network yields no candidates',
+  (await fetchCandidates('البرز', deadFetcher)).length === 0)
+
+/* a non-ok payload must not become a signal */
+const badFetcher = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ status: 'error', items: [] }) })
+check('news: status!=ok yields no candidates',
+  (await fetchCandidates('البرز', badFetcher)).length === 0)
+
+/* a real rss2json payload flows through the same gate end-to-end */
+const goodFetcher = async () => ({
+  ok: true,
+  status: 200,
+  text: async () => JSON.stringify({ status: 'ok', items: [
+    { title: 'تعطیلی مدارس البرز در روز شنبه', link: 'https://b/1', pubDate: new Date(NOW - 3600e3).toUTCString() },
+    { title: 'ورزش فوتبال اروپا', link: 'https://b/2', pubDate: new Date(NOW - 3600e3).toUTCString() },
+  ] }),
+})
+const cands = await fetchCandidates('البرز', goodFetcher)
+eq('news: primary parse returns both items', cands.length, 2)
+check('news: end-to-end gate picks the closure',
+  pickAlert(cands, 'البرز', NOW) !== null && pickAlert(cands, 'البرز', NOW).title.includes('البرز'))
+check('news: primary is tried for every verified query', QUERIES.length === 4)
+check('news: rss2json url encodes the Bing url',
+  rss2jsonUrl('تعطیلی مدارس البرز').includes('https%3A%2F%2Fwww.bing.com%2Fnews%2Fsearch'))
+
+/* dedupe: closure notices mutate, one story must not become four */
+eq('news: near-identical titles collapse',
+  dedupeTitles([item('تعطیلی مدارس البرز فردا'), item('تعطیلی مدارس البرز فردا')]).length, 1)
+
+/* region vocabulary */
+check('news: هشتگرد knows its province', regionTerms('هشتگرد').includes('البرز'))
+check('news: تهران is not silently treated as Alborz', !regionTerms('تهران').includes('البرز'))
 /* ------------------------------------------------------- report */
 if (failures.length) {
   console.error(`UNIT_FAIL ${pass} passed, ${failures.length} failed`)
