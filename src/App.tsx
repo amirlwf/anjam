@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { Lang, View } from './types'
 import { getLang, applyLang, t } from './lib/i18n'
 import { loadConfig } from './lib/config'
 import { getClient } from './lib/supabaseClient'
 import { store, updateList, destroyList } from './lib/store'
 import { startSync, stopSync, syncNow } from './lib/sync'
-import { startAlarmLoop } from './lib/alarms'
+import { startAlarmLoop, syncTaskAlarms } from './lib/alarms'
+import { getSections, subscribeSections } from './lib/sections'
 import Setup from './components/Setup'
 import Auth from './components/Auth'
 import Header from './components/Header'
@@ -13,6 +14,8 @@ import Sidebar from './components/Sidebar'
 import QuickAdd from './components/QuickAdd'
 import Routine from './components/Routine'
 import Dates from './components/Dates'
+import Study from './components/Study'
+import Workout from './components/Workout'
 import TaskList from './components/TaskList'
 import TaskDetail from './components/TaskDetail'
 import Settings from './components/Settings'
@@ -46,6 +49,10 @@ function viewTitle(lang: Lang, view: View): string {
       const list = store.getState().lists.find((l) => l.id === view.id)
       return list ? list.name : tt('projects')
     }
+    case 'study':
+      return tt('studyTitle')
+    case 'workout':
+      return tt('workoutTitle')
   }
 }
 
@@ -94,6 +101,10 @@ export default function App() {
       await store.load(session.user.id)
       setPhase('app')
       void startSync(session.user.id)
+      // Reconcile alarms right after data lands (don't wait up to 15s for the
+      // interval): future rings plan immediately, stale ones are swallowed by
+      // the late-grace guard instead of surprising the user after login.
+      void syncTaskAlarms()
     } catch {
       setPhase('auth')
     }
@@ -147,6 +158,14 @@ export default function App() {
     return () => window.removeEventListener('anjam:cal-changed', h)
   }, [])
 
+  // Opt-in sections: if the open section gets switched off, land back on inbox.
+  const sections = useSyncExternalStore(subscribeSections, getSections)
+  useEffect(() => {
+    if ((view.kind === 'study' && !sections.study) || (view.kind === 'workout' && !sections.workout)) {
+      setView({ kind: 'inbox' })
+    }
+  }, [view, sections])
+
   async function signOut() {
     if (!window.confirm(t(lang, 'confirmSignOut'))) return
     try {
@@ -198,7 +217,7 @@ export default function App() {
           <div className="view-head" key={JSON.stringify(view)}>
             <h2>{viewTitle(lang, view)}</h2>
             <div className="view-actions">
-              {view.kind !== 'completed' && view.kind !== 'routine' && (
+              {view.kind !== 'completed' && view.kind !== 'routine' && view.kind !== 'study' && view.kind !== 'workout' && (
                 <button className="btn ghost small" onClick={() => setShowCompleted((v) => !v)}>
                   {showCompleted ? t(lang, 'hideCompleted') : t(lang, 'showCompleted')}
                 </button>
@@ -235,6 +254,10 @@ export default function App() {
             <Routine lang={lang} />
           ) : view.kind === 'dates' ? (
             <Dates lang={lang} />
+          ) : view.kind === 'study' ? (
+            <Study lang={lang} />
+          ) : view.kind === 'workout' ? (
+            <Workout lang={lang} />
           ) : (
             <>
               <QuickAdd lang={lang} defaultListId={listId} />

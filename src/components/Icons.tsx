@@ -108,6 +108,30 @@ export const Folder = (p: SVGProps<SVGSVGElement>) => (
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
   </svg>
 )
+/** open book — study section */
+export const Book = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
+    <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z" />
+    <path d="M9 7.5h6" />
+  </svg>
+)
+
+/** dumbbell — workout section */
+export const Dumbbell = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11" />
+  </svg>
+)
+
+/** crosshair — "use my location" (weather) */
+export const Loc = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 2.5v3.2M12 18.3v3.2M2.5 12h3.2M18.3 12h3.2" />
+  </svg>
+)
+
 export const Refresh = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />

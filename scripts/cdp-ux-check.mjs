@@ -26,9 +26,17 @@ async function main() {
 
   let id = 0
   const pending = new Map()
+  const consoleErrs = []
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data)
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) }
+    if (m.method === 'Runtime.exceptionThrown') {
+      const d = m.params?.exceptionDetails
+      consoleErrs.push(String(d?.exception?.description || d?.text || 'exception').slice(0, 220))
+    }
+    if (m.method === 'Log.entryAdded' && m.params?.entry?.level === 'error') {
+      consoleErrs.push(String(m.params.entry.text).slice(0, 220))
+    }
   }
   ws.onclose = () => { console.error('CDP_WS_CLOSED_BY_BROWSER'); process.exit(3) }
   ws.onerror = () => { /* surfaced via onclose */ }
@@ -65,6 +73,7 @@ async function main() {
 
   await send('Page.enable')
   await send('Runtime.enable')
+  await send('Log.enable').catch(() => undefined)
 
   // --- enter the main app offline: fake config + fake (unexpired) local session ---
   // idempotent boot: log out, clear the origin (tasks/settings from prior runs),
@@ -502,6 +511,108 @@ async function main() {
   await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /صندوق ورودی|Inbox/.test(x.textContent)); n && n.click(); return !!n })()`)
   await sleep(450)
 
+  // --- optional sections (study / workout): hidden by default, opt-in in settings ---
+  const navHas = (re) => evalJs(`([...document.querySelectorAll('.nav-item')]).some(x => ${re}.test(x.textContent))`)
+  check('study nav hidden by default', (await navHas('/درس|Study/')) === false)
+  check('workout nav hidden by default', (await navHas('/ورزش|Workout/')) === false)
+  const setReact = (sel, v, ev = 'input', idx = 0) => evalJs(`(() => {
+    const el = document.querySelectorAll(${JSON.stringify(sel)})[${idx}]
+    if (!el) return 'no-el'
+    const proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(v)})
+    el.dispatchEvent(new Event(${JSON.stringify(ev)}, { bubbles: true }))
+    return 'ok'
+  })()`)
+  const pressEnter = async () => {
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  }
+  // enable both sections in Settings → Sections
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.topbar-actions button')].find(x => /تنظیمات|Settings/i.test(x.title || ''))
+    b && b.click(); return b ? 'ok' : 'no-gear'
+  })()`)
+  await sleep(500)
+  const secStudyBtn = await evalJs(`(() => { const b = document.querySelector('[data-testid=sec-study-on]'); b && b.click(); return !!b })()`)
+  const secWorkoutBtn = await evalJs(`(() => { const b = document.querySelector('[data-testid=sec-workout-on]'); b && b.click(); return !!b })()`)
+  check('settings sections toggles', secStudyBtn === true && secWorkoutBtn === true, String(secStudyBtn) + '/' + String(secWorkoutBtn))
+  await sleep(250)
+  await evalJs(`(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return 'esc' })()`)
+  await sleep(450)
+  check('study nav appears after enable', (await navHas('/درس|Study/')) === true)
+  check('workout nav appears after enable', (await navHas('/ورزش|Workout/')) === true)
+
+  // ---- study view ----
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /درس|Study/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(500)
+  check('study view opens', await evalJs(`!!document.querySelector('[data-testid=study-view]')`) === true)
+  const studyTabs = await evalJs(`['tt','hw','log'].every(k => !!document.querySelector('[data-testid=study-tab-' + k + ']'))`)
+  check('study tabs present', studyTabs === true, String(studyTabs))
+  // subject
+  await evalJs(`document.querySelector('[data-testid=subj-input]').focus(); 'ok'`)
+  await send('Input.insertText', { text: 'ریاضی' })
+  await sleep(250)
+  await pressEnter()
+  await sleep(450)
+  check('study subject added', await evalJs(`document.querySelectorAll('.subj-chip').length >= 1`) === true)
+  // timetable slot
+  await setReact('[data-testid=study-tt] .slot-form select', await evalJs(`document.querySelectorAll('[data-testid=study-tt] .slot-form select')[0]?.options[1]?.value || ''`), 'change')
+  await setReact('[data-testid=study-tt] .slot-form input[type=time]', '10:00', 'input', 0)
+  await setReact('[data-testid=study-tt] .slot-form input[type=time]', '11:30', 'input', 1)
+  await sleep(250)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=slot-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('timetable slot added', await evalJs(`document.querySelectorAll('[data-testid=slot-row]').length >= 1`) === true)
+  await shot('22-study-timetable-desktop.png')
+
+  // ---- homework tab ----
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=study-tab-hw]'); b && b.click(); return !!b })()`)
+  await sleep(350)
+  await evalJs(`document.querySelector('[data-testid=hw-input]').focus(); 'ok'`)
+  await send('Input.insertText', { text: 'تمرین فصل سوم' })
+  await sleep(250)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=hw-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('homework row added', await evalJs(`document.querySelectorAll('[data-testid=hw-row]').length >= 1`) === true)
+  const hwDone = await evalJs(`(() => { const b = document.querySelector('[data-testid=hw-row] .hw-check'); b && b.click(); return !!b })()`)
+  await sleep(400)
+  check('homework check-off', hwDone === true && await evalJs(`!!document.querySelector('[data-testid=hw-row].done')`) === true)
+
+  // ---- study time tab ----
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=study-tab-log]'); b && b.click(); return !!b })()`)
+  await sleep(350)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=log-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('study log row added', await evalJs(`document.querySelectorAll('[data-testid=log-row]').length >= 1`) === true)
+  check('study stat + week bars', await evalJs(`document.querySelectorAll('.stat-num').length >= 2 && document.querySelectorAll('.wb-bar').length === 7`) === true)
+
+  // ---- workout view ----
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /ورزش|Workout/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(500)
+  check('workout view opens', await evalJs(`!!document.querySelector('[data-testid=workout-view]')`) === true)
+  // pin the plan to TODAY so the today-tab check-off below has a real target
+  await setReact('[data-testid=wp-day-form] select', String((new Date().getDay() + 1) % 7), 'change')
+  await sleep(200)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=wp-day-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('workout day plan added', await evalJs(`document.querySelectorAll('[data-testid=wp-day]').length >= 1`) === true)
+  await evalJs(`document.querySelectorAll('.ex-form input')[0].focus(); 'ok'`)
+  await send('Input.insertText', { text: 'شنا سوئدی' })
+  await sleep(250)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=wp-ex-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('workout exercise added', await evalJs(`document.querySelectorAll('[data-testid=wp-ex]').length >= 1`) === true)
+  await shot('23-workout-desktop.png')
+  // today tab: check-off → completion
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=wp-tab-today]'); b && b.click(); return !!b })()`)
+  await sleep(400)
+  const wpCheck = await evalJs(`(() => { const b = document.querySelector('[data-testid=wp-check]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  check('workout today check-off + complete', wpCheck === true && await evalJs(`!!document.querySelector('[data-testid=wp-complete]')`) === true)
+  // back to the task list: later checks (detail @390 etc.) expect task rows
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /صندوق ورودی|Inbox/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(500)
+
   // --- weather chip (network-tolerant: offline shows a placeholder) ---
   const wc = await evalJs(`(() => {
     const b = document.querySelector('[data-testid=weather-chip]')
@@ -541,6 +652,27 @@ async function main() {
   })`)
   const mb = JSON.parse(mob)
   check('no horizontal overflow @390px', mb.hOverflow, 'w=' + mb.w)
+
+  // scroll sanity: the view is the only scroller (document-level scroll is
+  // exactly the "broken scroll on Android" symptom), and it actually moves
+  // when there is content to scroll.
+  const sc = await evalJs(`(() => {
+    const v = document.querySelector('.view')
+    if (!v) return JSON.stringify({ none: true })
+    const scrollable = v.scrollHeight - v.clientHeight > 4
+    const before = v.scrollTop
+    v.scrollTop = 480
+    const moved = v.scrollTop > before
+    const docScrollable = document.documentElement.scrollHeight - document.documentElement.clientHeight > 2
+    v.scrollTop = before
+    return JSON.stringify({ scrollable, moved, docScrollable })
+  })()`)
+  const scj = JSON.parse(sc)
+  check(
+    'view scrolls, document does not @390',
+    scj.docScrollable === false && (scj.scrollable ? scj.moved === true : true),
+    sc
+  )
   check('layout viewport is 390', mb.w === 390, String(mb.w))
 
   const fabM = await evalJs(`(() => { const f = document.querySelector('.fab'); return f ? f.getBoundingClientRect().width : -1 })()`)
@@ -664,7 +796,13 @@ async function main() {
   console.log('NARROW_FILE:', await shot('19-mobile-360.png'))
   await send('Emulation.clearDeviceMetricsOverride')
 
+  // --- no unexpected console errors (offline noise excluded) ---
+  const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
+  const realErrs = consoleErrs.filter((e) => !noise.test(e))
+  check('no console errors', realErrs.length === 0, realErrs.slice(0, 3).join(' | ').slice(0, 300))
+
   const failed = results.filter((r) => !r.ok)
+
   console.log('UX_QA_SUMMARY:', JSON.stringify({ total: results.length, passed: results.length - failed.length, failed: failed.map((f) => f.name) }))
   console.log(failed.length === 0 ? 'UX_QA_ALL_PASS' : 'UX_QA_HAS_FAILURES')
 

@@ -129,6 +129,15 @@ function restore(): TimerState {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const s = JSON.parse(raw) as Partial<TimerState>
+      // If the countdown expired while the app was closed, stopping silently
+      // is what we want: ringing at the next launch felt like a ghost alarm
+      // (same family as the rings-at-login bug). A tiny grace keeps a
+      // reopen-right-after-expiry ringing so a backgrounded app still alerts.
+      const endsAtRaw = typeof s.endsAt === 'number' ? s.endsAt : null
+      const expiredAway = !!s.running && endsAtRaw !== null && Date.now() - endsAtRaw > 15_000
+      if (expiredAway) {
+        return { ...base, durationMs: s.durationMs || 0, kind: s.kind === 'pomodoro' || s.kind === 'task' ? s.kind : 'timer' }
+      }
       return {
         ...base,
         running: !!s.running,

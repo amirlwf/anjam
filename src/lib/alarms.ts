@@ -23,6 +23,14 @@ import { alarmBridge, startTimer, cancelTimer, getTimer, ringSoft, type AlarmLab
 const MUTE_KEY = 'anjam.alarms.muted'
 /** Missed while the app was closed: still ring if less than this late. */
 const MISSED_WINDOW_MS = 2 * 60 * 60 * 1000
+/**
+ * Alarms found already in the past (app was closed, or the store was empty
+ * during boot and only loaded after login) must NOT be replayed. A native
+ * setAlarmClock with a past time fires instantly and the desktop path used
+ * to ringSoft() on the spot — that was the "rings at login" bug. Only ring
+ * when we are essentially on time (sync jitter / slight late wakeups).
+ */
+const LATE_GRACE_MS = 60_000
 
 type Planned = { kind: 'native' | 'timer' | 'timeout' | 'missed'; at: number }
 const planned = new Map<string, Planned>()
@@ -152,6 +160,13 @@ function cancelPlanned(id: string, p: Planned): void {
 async function scheduleOne(d: Desired): Promise<void> {
   const now = Date.now()
   const lbl = labelsFor(d.title)
+
+  // Stale alarm: remember it as handled, never ring for it (see LATE_GRACE_MS).
+  if (d.at <= now - LATE_GRACE_MS) {
+    handled.set(d.id, d.at)
+    planned.set(d.id, { kind: 'missed', at: d.at })
+    return
+  }
 
   if (Capacitor.isNativePlatform()) {
     const res = await alarmBridge

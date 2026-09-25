@@ -32,7 +32,7 @@ export default function TaskRowView({
   return (
     <div
       className={`task-row ${task.status === 'done' ? 'done' : ''} ${selected ? 'selected' : ''}`}
-      style={{ '--i': Math.min(index, 14) } as React.CSSProperties}
+      style={({ '--i': Math.min(index, 14), ...(index > 14 ? { animation: 'none' } : {}) }) as React.CSSProperties}
       onClick={() => onOpen(task.id)}
     >
       <button

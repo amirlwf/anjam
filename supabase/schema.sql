@@ -127,3 +127,125 @@ begin
     alter publication supabase_realtime add table public.important_dates;
   exception when others then null; end;
 end $$;
+
+
+-- ---------- v1.3: optional study & workout sections ----------
+
+create table if not exists public.study_subjects (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name        text not null,
+  color       text not null default '#3b82f6',
+  sort_order  int  not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create table if not exists public.study_slots (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  subject_id  uuid references public.study_subjects (id) on delete set null,
+  weekday     int  not null check (weekday between 0 and 6),
+  start       text not null,
+  end         text not null,
+  room        text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create table if not exists public.study_homework (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  subject_id  uuid references public.study_subjects (id) on delete set null,
+  title       text not null,
+  due         date,
+  done        boolean not null default false,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create table if not exists public.study_logs (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  subject_id  uuid references public.study_subjects (id) on delete set null,
+  date        date not null,
+  minutes     int  not null check (minutes between 1 and 1440),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create table if not exists public.workout_plans (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  weekday     int  not null check (weekday between 0 and 6),
+  time        text,
+  exercises   jsonb not null default '[]'::jsonb,
+  sort_order  int  not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create table if not exists public.workout_logs (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  date        date not null,
+  plan_id     uuid references public.workout_plans (id) on delete set null,
+  done        jsonb not null default '[]'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted     boolean not null default false
+);
+
+create index if not exists study_subjects_user_order on public.study_subjects (user_id, sort_order);
+create index if not exists study_slots_user_week on public.study_slots (user_id, weekday);
+create index if not exists study_homework_user_due on public.study_homework (user_id, due);
+create index if not exists study_logs_user_date on public.study_logs (user_id, date);
+create index if not exists workout_plans_user_week on public.workout_plans (user_id, weekday);
+create index if not exists workout_logs_user_date on public.workout_logs (user_id, date);
+
+alter table public.study_subjects enable row level security;
+alter table public.study_slots enable row level security;
+alter table public.study_homework enable row level security;
+alter table public.study_logs enable row level security;
+alter table public.workout_plans enable row level security;
+alter table public.workout_logs enable row level security;
+
+drop policy if exists study_subjects_owner_all on public.study_subjects;
+create policy study_subjects_owner_all on public.study_subjects for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists study_slots_owner_all on public.study_slots;
+create policy study_slots_owner_all on public.study_slots for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists study_homework_owner_all on public.study_homework;
+create policy study_homework_owner_all on public.study_homework for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists study_logs_owner_all on public.study_logs;
+create policy study_logs_owner_all on public.study_logs for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists workout_plans_owner_all on public.workout_plans;
+create policy workout_plans_owner_all on public.workout_plans for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists workout_logs_owner_all on public.workout_logs;
+create policy workout_logs_owner_all on public.workout_logs for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.study_subjects;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.study_slots;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.study_homework;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.study_logs;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.workout_plans;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.workout_logs;
+  exception when others then null; end;
+end $$;

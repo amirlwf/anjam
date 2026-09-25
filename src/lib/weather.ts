@@ -92,16 +92,20 @@ async function ipGeo(): Promise<{ lat: number; lon: number; place: string }> {
 }
 
 /** Resolve the location once and remember it. */
-export async function resolveLoc(lang: Lang): Promise<{ lat: number; lon: number; place: string }> {
+export async function resolveLoc(lang: Lang, allowGeo = false): Promise<{ lat: number; lon: number; place: string }> {
   const saved = readSavedLoc()
   if (saved) return saved
-  try {
-    const g = await browserGeo()
-    const place = (await reversePlace(g.lat, g.lon, lang)) || (lang === 'fa' ? 'موقعیت من' : 'My location')
-    const loc = { ...g, place }
-    saveLoc(loc)
-    return loc
-  } catch { /* fall through to IP */ }
+  // Geolocation shows a permission prompt, so it must never fire on app
+  // boot — only after an explicit user action (the "my location" button).
+  if (allowGeo) {
+    try {
+      const g = await browserGeo()
+      const place = (await reversePlace(g.lat, g.lon, lang)) || (lang === 'fa' ? 'موقعیت من' : 'My location')
+      const loc = { ...g, place }
+      saveLoc(loc)
+      return loc
+    } catch { /* fall through to IP */ }
+  }
   try {
     const ip = await ipGeo()
     saveLoc(ip)
@@ -110,6 +114,15 @@ export async function resolveLoc(lang: Lang): Promise<{ lat: number; lon: number
   const fallback = { lat: 35.6892, lon: 51.389, place: lang === 'fa' ? 'تهران' : 'Tehran' }
   saveLoc(fallback)
   return fallback
+}
+
+/** Explicit "use my location" action — prompts geolocation on purpose. */
+export async function myLocation(lang: Lang): Promise<{ lat: number; lon: number; place: string }> {
+  const g = await browserGeo()
+  const place = (await reversePlace(g.lat, g.lon, lang)) || (lang === 'fa' ? 'موقعیت من' : 'My location')
+  const loc = { ...g, place }
+  saveLoc(loc)
+  return loc
 }
 
 /** City search through Open-Meteo's free geocoder. */
@@ -163,10 +176,10 @@ async function fetchAt(lat: number, lon: number, place: string): Promise<Weather
 
 /** Current conditions for the saved location; cached for 20 minutes.
  *  On network failure returns the last cached value rather than nothing. */
-export async function fetchWeather(lang: Lang, force = false): Promise<WeatherNow> {
+export async function fetchWeather(lang: Lang, force = false, allowGeo = false): Promise<WeatherNow> {
   const cache = readCache()
   if (!force && cache.w && Date.now() - cache.w.at < TTL_MS) return cache.w
-  const loc = await resolveLoc(lang)
+  const loc = await resolveLoc(lang, allowGeo)
   const w = await fetchAt(loc.lat, loc.lon, loc.place || cache.w?.place || '')
   writeCache({ ...cache, loc, w })
   return w

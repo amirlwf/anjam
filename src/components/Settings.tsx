@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { Lang, SyncStatus, ThemePref } from '../types'
+import type { Lang, SectionKey, SyncStatus, ThemePref } from '../types'
 import { t, fmtDate } from '../lib/i18n'
 import { loadConfig, saveConfig } from '../lib/config'
 import { getClient, resetClient } from '../lib/supabaseClient'
 import { createClient } from '@supabase/supabase-js'
 import { onSyncStatus, syncNow } from '../lib/sync'
 import { exportJson, store } from '../lib/store'
+import { getSections, setSection } from '../lib/sections'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
 import { getCalPref, setCalPref, type CalSys } from '../lib/calendar'
@@ -54,6 +55,11 @@ export default function Settings({
   const [cal, setCal] = useState<CalSys>(getCalPref())
   const [accent, setAccent] = useState<string>(() => getAccent())
   const [motion, setMotion] = useState<MotionPref>(() => getMotion())
+  const [secs, setSecs] = useState(getSections())
+  function toggleSection(k: SectionKey, on: boolean) {
+    setSection(k, on)
+    setSecs(getSections())
+  }
   const [fontPref, setFontPref] = useState<FontPref>(() => getFontPref())
   const nativeAlarms = Capacitor.isNativePlatform()
   const [ast, setAst] = useState<AlarmStatus | null>(null)
@@ -205,6 +211,32 @@ export default function Settings({
               ))}
             </div>
           </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>{tt('sectionsSec')}</h3>
+          <p className="muted small">{tt('sectionsHint')}</p>
+          {(['study', 'workout'] as const).map((k) => (
+            <div className="appearance-row" key={k}>
+              <span className="muted small">{tt(k === 'study' ? 'secStudy' : 'secWorkout')}</span>
+              <div className="segmented">
+                <button
+                  className={`seg-btn ${secs[k] ? 'active' : ''}`}
+                  data-testid={`sec-${k}-on`}
+                  onClick={() => toggleSection(k, true)}
+                >
+                  {tt('motionOn')}
+                </button>
+                <button
+                  className={`seg-btn ${!secs[k] ? 'active' : ''}`}
+                  data-testid={`sec-${k}-off`}
+                  onClick={() => toggleSection(k, false)}
+                >
+                  {tt('motionOff')}
+                </button>
+              </div>
+            </div>
+          ))}
         </section>
 
         <section className="settings-section">

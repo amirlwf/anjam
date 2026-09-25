@@ -1,4 +1,4 @@
-import type { HabitRow, ImportantDateRow, LabelRow, ListRow, Priority, Recurrence, TaskRow, View } from '../types'
+import type { HabitRow, HomeworkRow, ImportantDateRow, LabelRow, ListRow, Priority, Recurrence, StudyLogRow, StudySlotRow, StudySubjectRow, Table, TaskRow, View, WorkoutLogRow, WorkoutPlanRow } from '../types'
 import { idbGetAll, idbPut } from './idb'
 import { enqueue, onPulled } from './sync'
 import { nowISO, tsOf, uuid, sameDay, startOfDay, localDate } from './util'
@@ -12,9 +12,18 @@ export interface StoreState {
   labels: LabelRow[]
   habits: HabitRow[]
   dates: ImportantDateRow[]
+  subjects: StudySubjectRow[]
+  slots: StudySlotRow[]
+  homework: HomeworkRow[]
+  studyLogs: StudyLogRow[]
+  workoutPlans: WorkoutPlanRow[]
+  workoutLogs: WorkoutLogRow[]
 }
 
-let state: StoreState = { ready: false, userId: '', tasks: [], lists: [], labels: [], habits: [], dates: [] }
+let state: StoreState = {
+  ready: false, userId: '', tasks: [], lists: [], labels: [], habits: [], dates: [],
+  subjects: [], slots: [], homework: [], studyLogs: [], workoutPlans: [], workoutLogs: [],
+}
 const subs = new Set<() => void>()
 
 function emit(): void {
@@ -26,10 +35,7 @@ function set(partial: Partial<StoreState>): void {
   emit()
 }
 
-async function persist(
-  table: 'tasks' | 'lists' | 'labels' | 'habits' | 'important_dates',
-  row: TaskRow | ListRow | LabelRow | HabitRow | ImportantDateRow
-): Promise<void> {
+async function persist(table: Table, row: Parameters<typeof idbPut>[1]): Promise<void> {
   await idbPut(table, row)
   await enqueue(table, row as never)
 }
@@ -43,14 +49,24 @@ export const store = {
     return state
   },
   async load(userId: string): Promise<void> {
-    const [tasks, lists, labels, habits, dates] = await Promise.all([
-      idbGetAll<TaskRow>('tasks'),
-      idbGetAll<ListRow>('lists'),
-      idbGetAll<LabelRow>('labels'),
-      idbGetAll<HabitRow>('habits'),
-      idbGetAll<ImportantDateRow>('important_dates'),
-    ])
-    set({ ready: true, userId, tasks, lists, labels, habits, dates })
+    const [tasks, lists, labels, habits, dates, subjects, slots, homework, studyLogs, workoutPlans, workoutLogs] =
+      await Promise.all([
+        idbGetAll<TaskRow>('tasks'),
+        idbGetAll<ListRow>('lists'),
+        idbGetAll<LabelRow>('labels'),
+        idbGetAll<HabitRow>('habits'),
+        idbGetAll<ImportantDateRow>('important_dates'),
+        idbGetAll<StudySubjectRow>('study_subjects'),
+        idbGetAll<StudySlotRow>('study_slots'),
+        idbGetAll<HomeworkRow>('study_homework'),
+        idbGetAll<StudyLogRow>('study_logs'),
+        idbGetAll<WorkoutPlanRow>('workout_plans'),
+        idbGetAll<WorkoutLogRow>('workout_logs'),
+      ])
+    set({
+      ready: true, userId, tasks, lists, labels, habits, dates,
+      subjects, slots, homework, studyLogs, workoutPlans, workoutLogs,
+    })
   },
 }
 
@@ -316,6 +332,241 @@ export function liveDates(): ImportantDateRow[] {
   return state.dates.filter((x) => !x.deleted)
 }
 
+/* ---------------- study & workout (opt-in sections) ---------------- */
+
+const STUDY_PALETTE = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#14b8a6']
+
+/** Weekday index used across the app: 0 = شنبه (Sat) … 6 = جمعه (Fri). */
+export function weekIdx(d = new Date()): number {
+  return (d.getDay() + 1) % 7
+}
+
+async function updateRow<T extends { id: string; updated_at: string }>(
+  table: Table,
+  arr: T[],
+  key: keyof StoreState,
+  id: string,
+  patch: Partial<T>
+): Promise<void> {
+  const i = arr.findIndex((x) => x.id === id)
+  if (i < 0) return
+  const next = { ...arr[i], ...patch, id, updated_at: nowISO() } as T
+  const rows = arr.slice()
+  rows[i] = next
+  set({ [key]: rows } as Partial<StoreState>)
+  await persist(table, next)
+}
+
+async function destroyRow<T extends { id: string; updated_at: string; deleted?: boolean }>(
+  table: Table,
+  arr: T[],
+  key: keyof StoreState,
+  id: string
+): Promise<void> {
+  await updateRow(table, arr, key, id, { deleted: true } as Partial<T>)
+}
+
+/* ---- subjects ---- */
+
+export function liveSubjects(): StudySubjectRow[] {
+  return state.subjects.filter((x) => !x.deleted).sort((a, b) => a.sort_order - b.sort_order)
+}
+
+export async function addStudySubject(name: string, color?: string): Promise<StudySubjectRow> {
+  const now = nowISO()
+  const row: StudySubjectRow = {
+    id: uuid(),
+    user_id: state.userId,
+    name: name.trim(),
+    color: color || STUDY_PALETTE[state.subjects.length % STUDY_PALETTE.length],
+    sort_order: state.subjects.length + 1,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ subjects: [...state.subjects, row] })
+  await persist('study_subjects', row)
+  return row
+}
+
+export async function updateStudySubject(id: string, patch: Partial<StudySubjectRow>): Promise<void> {
+  await updateRow('study_subjects', state.subjects, 'subjects', id, patch)
+}
+
+export async function destroyStudySubject(id: string): Promise<void> {
+  await destroyRow('study_subjects', state.subjects, 'subjects', id)
+}
+
+/* ---- timetable slots ---- */
+
+export function liveSlots(): StudySlotRow[] {
+  return state.slots.filter((x) => !x.deleted)
+}
+
+export async function addStudySlot(input: {
+  subject_id?: string | null
+  weekday: number
+  start: string
+  end: string
+  room?: string | null
+}): Promise<StudySlotRow> {
+  const now = nowISO()
+  const row: StudySlotRow = {
+    id: uuid(),
+    user_id: state.userId,
+    subject_id: input.subject_id ?? null,
+    weekday: input.weekday,
+    start: input.start,
+    end: input.end,
+    room: input.room?.trim() || null,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ slots: [...state.slots, row] })
+  await persist('study_slots', row)
+  return row
+}
+
+export async function updateStudySlot(id: string, patch: Partial<StudySlotRow>): Promise<void> {
+  await updateRow('study_slots', state.slots, 'slots', id, patch)
+}
+
+export async function destroyStudySlot(id: string): Promise<void> {
+  await destroyRow('study_slots', state.slots, 'slots', id)
+}
+
+/* ---- homework ---- */
+
+export function liveHomework(): HomeworkRow[] {
+  return state.homework.filter((x) => !x.deleted)
+}
+
+export async function addHomework(input: {
+  title: string
+  subject_id?: string | null
+  due?: string | null
+}): Promise<HomeworkRow> {
+  const now = nowISO()
+  const row: HomeworkRow = {
+    id: uuid(),
+    user_id: state.userId,
+    title: input.title.trim(),
+    subject_id: input.subject_id ?? null,
+    due: input.due || null,
+    done: false,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ homework: [...state.homework, row] })
+  await persist('study_homework', row)
+  return row
+}
+
+export async function updateHomework(id: string, patch: Partial<HomeworkRow>): Promise<void> {
+  await updateRow('study_homework', state.homework, 'homework', id, patch)
+}
+
+export async function destroyHomework(id: string): Promise<void> {
+  await destroyRow('study_homework', state.homework, 'homework', id)
+}
+
+/* ---- study logs ---- */
+
+export function liveStudyLogs(): StudyLogRow[] {
+  return state.studyLogs.filter((x) => !x.deleted)
+}
+
+export async function addStudyLog(input: {
+  date: string
+  minutes: number
+  subject_id?: string | null
+}): Promise<StudyLogRow> {
+  const now = nowISO()
+  const row: StudyLogRow = {
+    id: uuid(),
+    user_id: state.userId,
+    date: input.date,
+    minutes: Math.max(1, Math.round(input.minutes)),
+    subject_id: input.subject_id ?? null,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ studyLogs: [...state.studyLogs, row] })
+  await persist('study_logs', row)
+  return row
+}
+
+export async function destroyStudyLog(id: string): Promise<void> {
+  await destroyRow('study_logs', state.studyLogs, 'studyLogs', id)
+}
+
+/* ---- workout plans ---- */
+
+export function liveWorkoutPlans(): WorkoutPlanRow[] {
+  return state.workoutPlans.filter((x) => !x.deleted).sort((a, b) => a.weekday - b.weekday || a.sort_order - b.sort_order)
+}
+
+export async function addWorkoutPlan(input: {
+  weekday: number
+  time?: string | null
+  exercises?: { name: string; sets?: number; reps?: string }[]
+}): Promise<WorkoutPlanRow> {
+  const now = nowISO()
+  const row: WorkoutPlanRow = {
+    id: uuid(),
+    user_id: state.userId,
+    weekday: input.weekday,
+    time: input.time || null,
+    exercises: input.exercises ?? [],
+    sort_order: state.workoutPlans.length + 1,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ workoutPlans: [...state.workoutPlans, row] })
+  await persist('workout_plans', row)
+  return row
+}
+
+export async function updateWorkoutPlan(id: string, patch: Partial<WorkoutPlanRow>): Promise<void> {
+  await updateRow('workout_plans', state.workoutPlans, 'workoutPlans', id, patch)
+}
+
+export async function destroyWorkoutPlan(id: string): Promise<void> {
+  await destroyRow('workout_plans', state.workoutPlans, 'workoutPlans', id)
+}
+
+/* ---- workout logs (check-off per date + plan) ---- */
+
+export function liveWorkoutLogs(): WorkoutLogRow[] {
+  return state.workoutLogs.filter((x) => !x.deleted)
+}
+
+/** Upsert: same date + plan → replace the `done` list (idempotent check-off). */
+export async function saveWorkoutLog(date: string, planId: string | null, done: string[]): Promise<void> {
+  const existing = state.workoutLogs.find((x) => !x.deleted && x.date === date && x.plan_id === planId)
+  if (existing) {
+    await updateRow('workout_logs', state.workoutLogs, 'workoutLogs', existing.id, { done })
+    return
+  }
+  const now = nowISO()
+  const row: WorkoutLogRow = {
+    id: uuid(),
+    user_id: state.userId,
+    date,
+    plan_id: planId,
+    done,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ workoutLogs: [...state.workoutLogs, row] })
+  await persist('workout_logs', row)
+}
+
 /**
  * Score for a calendar day: of the habits that already existed that day,
  * how many are logged. Used by the heatmap, today stats and streaks.
@@ -420,6 +671,10 @@ export function matchesView(t: TaskRow, view: View): boolean {
     case 'dates':
       // same — the dates view is its own component
       return false
+    case 'study':
+    case 'workout':
+      // optional sections render their own components
+      return false
   }
 }
 
@@ -455,6 +710,12 @@ export function exportJson(): string {
       labels: state.labels,
       habits: state.habits,
       dates: state.dates,
+      subjects: state.subjects,
+      slots: state.slots,
+      homework: state.homework,
+      studyLogs: state.studyLogs,
+      workoutPlans: state.workoutPlans,
+      workoutLogs: state.workoutLogs,
     },
     null,
     2

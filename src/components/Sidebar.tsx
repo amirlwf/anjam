@@ -2,8 +2,9 @@ import { useSyncExternalStore, useState } from 'react'
 import type { Lang, View } from '../types'
 import { t } from '../lib/i18n'
 import { store, addList, addLabel, dueBucket, dayScore } from '../lib/store'
+import { getSections, subscribeSections } from '../lib/sections'
 import { localDate } from '../lib/util'
-import { CalendarCheck, CalendarDay, CalendarRange, CheckCircle, Folder, Gift, Inbox, Layers, Flag, Plus, Tag, X } from './Icons'
+import { Book, CalendarCheck, CalendarDay, CalendarRange, CheckCircle, Dumbbell, Folder, Gift, Inbox, Layers, Flag, Plus, Tag, X } from './Icons'
 import logo from '../assets/logo.png'
 
 function useStore() {
@@ -23,6 +24,7 @@ export default function Sidebar({
 }) {
   const tt = (k: string) => t(lang, k)
   const st = useStore()
+  const sections = useSyncExternalStore(subscribeSections, getSections)
   const [addingList, setAddingList] = useState(false)
   const [addingLabel, setAddingLabel] = useState(false)
   const [newName, setNewName] = useState('')
@@ -104,6 +106,8 @@ export default function Sidebar({
         <Item v={{ kind: 'upcoming' }} icon={<CalendarRange />} label={tt('upcoming')} count={counts.upcoming} />
         <Item v={{ kind: 'routine' }} icon={<CalendarCheck />} label={tt('routine')} count={counts.routine} />
         <Item v={{ kind: 'dates' }} icon={<Gift />} label={tt('datesNav')} />
+        {sections.study && <Item v={{ kind: 'study' }} icon={<Book />} label={tt('studyNav')} />}
+        {sections.workout && <Item v={{ kind: 'workout' }} icon={<Dumbbell />} label={tt('workoutNav')} />}
         <Item v={{ kind: 'priority' }} icon={<Flag />} label={tt('priorities')} count={counts.priority} />
         <Item v={{ kind: 'all' }} icon={<Layers />} label={tt('all')} />
         <Item v={{ kind: 'completed' }} icon={<CheckCircle />} label={tt('completed')} count={counts.completed} />

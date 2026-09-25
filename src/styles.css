@@ -2330,3 +2330,213 @@ html[data-fs='lg'] body { font-size: 16px; }
   .date-strip { grid-template-columns: 1fr; }
   .sugg-grid { grid-template-columns: 1fr; }
 }
+
+
+/* ============ v1.3: Android scroll + mobile smoothness ============ */
+
+/* One contained scroller per view: prevents chained/parent scrolling while
+   swiping, which WebView users experience as a broken scroll. */
+.view {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Skip offscreen rows entirely — the biggest long-list scroll win on
+   low-end Android (Chromium skips layout/paint until they approach). */
+.task-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 46px;
+}
+
+/* The drawer animates constantly; promote it so scrolling never repaints
+   its shadow. */
+.sidebar { will-change: transform; }
+
+/* backdrop-filter re-blurs its whole backdrop on every visible frame —
+   fatal for drawer/sheet/ring animation on phones. Desktop keeps glass. */
+.nav-backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (max-width: 600px) {
+  /* No blur on the hot paths: sheet overlay and full-screen ring. */
+  .modal-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .alarm-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(5, 7, 12, 0.93);
+  }
+  /* Small screens: content first, no per-row stagger delays. */
+  .task-row {
+    animation-delay: 0s;
+  }
+}
+
+
+/* ============ v1.3: study + workout sections ============ */
+
+.study-wrap { display: flex; flex-direction: column; gap: 14px; }
+.study-tabs { align-self: flex-start; }
+.study-panel { display: flex; flex-direction: column; gap: 12px; }
+
+/* subjects chips */
+.subj-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.subj-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--border); border-radius: 999px;
+  padding: 3px 6px 3px 10px; font-size: 13px; font-weight: 600;
+  background: var(--surface);
+}
+.subj-add { display: inline-flex; align-items: center; gap: 4px; }
+.subj-add input {
+  width: 130px; border: 1px dashed var(--border); border-radius: 999px;
+  background: transparent; padding: 4px 10px; font-size: 12.5px; color: var(--text);
+}
+.chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--muted);
+  width: 18px; height: 18px; border-radius: 50%; cursor: pointer; padding: 0;
+}
+.chip-x:hover { background: var(--surface3); color: var(--text); }
+
+/* generic add-form row used by timetable / homework / study-time / workout */
+.slot-form {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px;
+}
+.slot-form input,
+.slot-form select {
+  border: 1px solid var(--border); background: var(--surface);
+  border-radius: 8px; padding: 7px 9px; font-size: 13px; color: var(--text);
+  font-family: inherit;
+}
+.slot-form input[type='time'],
+.slot-form input[type='date'],
+.slot-form input[type='number'] { width: auto; }
+.slot-form input[type='number'] { width: 74px; }
+.slot-form > input:not([type]) { flex: 1 1 150px; min-width: 130px; }
+
+.empty-line { margin: 4px 2px; font-size: 13.5px; }
+
+/* timetable */
+.tt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+.tt-day {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 9px; display: flex; flex-direction: column; gap: 6px;
+  min-height: 70px;
+}
+.tt-day.is-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.tt-day-h { font-size: 12.5px; font-weight: 700; color: var(--muted); letter-spacing: 0.01em; }
+.tt-none { font-size: 12px; color: var(--muted); opacity: 0.7; }
+.tt-slot {
+  border-inline-start: 3px solid var(--border); border-radius: 8px;
+  background: var(--surface2); padding: 6px 8px;
+  display: flex; flex-direction: column; gap: 1px; position: relative;
+  font-size: 13px;
+}
+.tt-slot b { font-size: 13px; }
+.tt-slot .chip-x { position: absolute; inset-inline-end: 4px; top: 4px; }
+
+/* homework */
+.hw-list { display: flex; flex-direction: column; gap: 6px; }
+.hw-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 12px;
+}
+.hw-row.done .hw-main b { text-decoration: line-through; color: var(--muted); }
+.hw-check {
+  width: 22px; height: 22px; min-width: 22px; border-radius: 7px;
+  border: 1.5px solid var(--border); background: var(--surface2);
+  color: var(--surface); font-size: 13px; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.hw-row .hw-check { background: var(--surface2); }
+.hw-row .hw-check[style] { color: var(--text); }
+.hw-main { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.hw-main b { font-size: 14px; }
+.hw-chip {
+  font-size: 11.5px; font-weight: 700; border-radius: 999px;
+  background: var(--surface3); color: var(--muted); padding: 3px 9px;
+}
+.hw-chip.bad { background: color-mix(in srgb, #ef4444 18%, transparent); color: #ef4444; }
+.hw-chip.warn { background: color-mix(in srgb, #f59e0b 20%, transparent); color: #d97706; }
+
+/* stat cards + weekly bars (study time / workout) */
+.stat-row { display: flex; gap: 10px; }
+.stat-card {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 2px; align-items: center;
+}
+.stat-num { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.week-bars {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+  height: 110px; align-items: end;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px 6px;
+}
+.wb-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+.wb-bar {
+  width: 60%; min-height: 3px; border-radius: 6px 6px 3px 3px;
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent));
+  transition: height 0.3s var(--ease);
+}
+.wb-lbl { font-size: 10.5px; color: var(--muted); }
+.minute-chips { display: flex; gap: 6px; }
+.chip-btn {
+  border: 1px solid var(--border); background: var(--surface);
+  border-radius: 999px; font-size: 12.5px; padding: 4px 12px;
+  color: var(--text); cursor: pointer; font-family: inherit;
+}
+.chip-btn:hover { border-color: var(--accent); }
+
+/* study log list */
+.log-list { display: flex; flex-direction: column; gap: 5px; }
+.log-row {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; padding: 7px 11px; font-size: 13.5px;
+}
+.log-row .dot { width: 9px; height: 9px; border-radius: 50%; }
+.log-row .muted { flex: 1; }
+.log-min { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* workout */
+.wp-list { display: flex; flex-direction: column; gap: 10px; }
+.wp-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.wp-card.is-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.wp-card-h { display: flex; align-items: center; gap: 9px; }
+.wp-card-h b { font-size: 15px; }
+.wp-card-h .spacer { flex: 1; }
+.ex-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ex-list li {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface2); border-radius: 9px; padding: 8px 11px;
+  font-size: 13.5px;
+}
+.ex-list li span:first-child { flex: 1; font-weight: 600; }
+.ex-list li.done span:first-child { text-decoration: line-through; color: var(--muted); }
+.ex-list.checkable li { gap: 10px; }
+.ex-form { display: flex; gap: 6px; align-items: center; }
+.ex-form input {
+  border: 1px solid var(--border); background: var(--surface);
+  border-radius: 8px; padding: 6px 9px; font-size: 13px; color: var(--text);
+  font-family: inherit;
+}
+.ex-form input:first-child { flex: 1; min-width: 110px; }
+.ex-form input[type='number'] { width: 56px; }
+.wp-done-banner {
+  background: color-mix(in srgb, #10b981 16%, transparent);
+  color: #10b981; font-weight: 700; font-size: 13.5px;
+  border-radius: 10px; padding: 9px 12px; text-align: center;
+}

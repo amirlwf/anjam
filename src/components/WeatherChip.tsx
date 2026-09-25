@@ -4,13 +4,14 @@ import { t, toFaDigits } from '../lib/i18n'
 import {
   cachedWeather,
   fetchWeather,
+  myLocation,
   saveLoc,
   searchPlace,
   wmoInfo,
   type WeatherIconName,
   type WeatherNow,
 } from '../lib/weather'
-import { Refresh, Search, X } from './Icons'
+import { Loc, Refresh, Search, X } from './Icons'
 
 const CLOUD = 'M17.5 19a4.5 4.5 0 0 0 .4-8.98A6 6 0 0 0 6.3 10.2 4 4 0 0 0 7 19h10.5z'
 
@@ -126,6 +127,23 @@ export default function WeatherChip({ lang }: { lang: Lang }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** Purposeful geolocation: only this button may trigger the permission prompt. */
+  async function useMyLoc() {
+    setBusy(true)
+    try {
+      await myLocation(lang)
+      setQ('')
+      setResults([])
+      const next = await fetchWeather(lang, true)
+      setW(next)
+      setErr(false)
+    } catch {
+      if (!cachedWeather()) setErr(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Close on outside click / Escape.
   useEffect(() => {
     if (!open) return
@@ -186,6 +204,9 @@ export default function WeatherChip({ lang }: { lang: Lang }) {
               <b>{w ? w.place : '—'}</b>
               <span className="muted small">{w ? updated : tt('weatherErr')}</span>
             </div>
+            <button className="icon-btn" onClick={() => void useMyLoc()} title={tt('weatherMyLoc')}>
+              <Loc width={15} height={15} />
+            </button>
             <button className="icon-btn" onClick={() => void load(true)} title={tt('weatherRefresh')}>
               <Refresh width={15} height={15} className={busy ? 'spin' : ''} />
             </button>
