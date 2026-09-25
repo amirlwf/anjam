@@ -11,6 +11,17 @@ import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
 import { getCalPref, setCalPref, type CalSys } from '../lib/calendar'
 import { Capacitor } from '@capacitor/core'
 import {
+  ACCENTS,
+  getAccent,
+  applyAccent,
+  getMotion,
+  applyMotion,
+  getFontPref,
+  applyFontPref,
+  type MotionPref,
+  type FontPref,
+} from '../lib/appearance'
+import {
   getAlarmStatus,
   requestNotifPerm,
   requestExactPerm,
@@ -41,6 +52,9 @@ export default function Settings({
   const [theme, setTheme] = useState<ThemePref>((localStorage.getItem('anjam.theme') as ThemePref) || 'system')
   const [sync, setSync] = useState<SyncStatus>({ state: 'disabled', lastSyncAt: null, pending: 0, error: null })
   const [cal, setCal] = useState<CalSys>(getCalPref())
+  const [accent, setAccent] = useState<string>(() => getAccent())
+  const [motion, setMotion] = useState<MotionPref>(() => getMotion())
+  const [fontPref, setFontPref] = useState<FontPref>(() => getFontPref())
   const nativeAlarms = Capacitor.isNativePlatform()
   const [ast, setAst] = useState<AlarmStatus | null>(null)
   const [ringTest, setRingTest] = useState<'idle' | 'scheduled' | 'fail'>('idle')
@@ -97,6 +111,21 @@ export default function Settings({
     applyTheme(p)
   }
 
+  function handleAccent(hex: string) {
+    setAccent(hex)
+    applyAccent(hex)
+  }
+
+  function handleMotion(m: MotionPref) {
+    setMotion(m)
+    applyMotion(m)
+  }
+
+  function handleFont(f: FontPref) {
+    setFontPref(f)
+    applyFontPref(f)
+  }
+
   function handleExport() {
     const blob = new Blob([exportJson()], { type: 'application/json' })
     const a = document.createElement('a')
@@ -130,6 +159,52 @@ export default function Settings({
           <button className="btn ghost small" onClick={onSignOut}>
             {tt('signOut')}
           </button>
+        </section>
+
+        <section className="settings-section">
+          <h3>{tt('appearanceSec')}</h3>
+          <div className="appearance-row">
+            <span className="muted small">{tt('accentColor')}</span>
+            <div className="accent-swatches">
+              {ACCENTS.map((hex) => (
+                <button
+                  key={hex}
+                  className={`accent-swatch ${accent === hex ? 'active' : ''}`}
+                  style={{ background: hex }}
+                  onClick={() => handleAccent(hex)}
+                  aria-label={hex}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="appearance-row">
+            <span className="muted small">{tt('motion')}</span>
+            <div className="segmented">
+              {(['on', 'off'] as MotionPref[]).map((m) => (
+                <button
+                  key={m}
+                  className={`seg-btn ${motion === m ? 'active' : ''}`}
+                  onClick={() => handleMotion(m)}
+                >
+                  {tt(m === 'on' ? 'motionOn' : 'motionOff')}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="appearance-row">
+            <span className="muted small">{tt('fontSize')}</span>
+            <div className="segmented">
+              {(['sm', 'md', 'lg'] as FontPref[]).map((f) => (
+                <button
+                  key={f}
+                  className={`seg-btn ${fontPref === f ? 'active' : ''}`}
+                  onClick={() => handleFont(f)}
+                >
+                  {tt(f === 'sm' ? 'fsSm' : f === 'md' ? 'fsMd' : 'fsLg')}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
 
         <section className="settings-section">

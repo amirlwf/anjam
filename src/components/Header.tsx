@@ -6,6 +6,7 @@ import { t } from '../lib/i18n'
 import { onSyncStatus } from '../lib/sync'
 import { Alert, Gear, Menu, Moon, Monitor, Refresh, Search, Sun, LogOut, Timer } from './Icons'
 import TimerPanel from './TimerPanel'
+import WeatherChip from './WeatherChip'
 import { fmtLeft, getTimer, onTimer, remainingMs } from '../lib/timer'
 
 function nextTheme(cur: ThemePref): ThemePref {
@@ -89,6 +90,7 @@ export default function Header({
         />
       </div>
       <div className="topbar-actions">
+        <WeatherChip lang={lang} />
         <button
           className={`sync-badge ${syncClass}`}
           onClick={() => window.dispatchEvent(new CustomEvent('anjam:sync-now'))}

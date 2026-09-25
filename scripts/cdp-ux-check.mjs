@@ -30,9 +30,12 @@ async function main() {
     const m = JSON.parse(ev.data)
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) }
   }
-  const send = (method, params = {}) => new Promise((res) => {
+  ws.onclose = () => { console.error('CDP_WS_CLOSED_BY_BROWSER'); process.exit(3) }
+  ws.onerror = () => { /* surfaced via onclose */ }
+  const send = (method, params = {}, ms = 90000) => new Promise((res, rej) => {
     const i = ++id
-    pending.set(i, res)
+    const to = setTimeout(() => { pending.delete(i); rej(new Error('CDP_TIMEOUT ' + method)) }, ms)
+    pending.set(i, (m) => { clearTimeout(to); res(m) })
     ws.send(JSON.stringify({ id: i, method, params }))
   })
   const evalJs = async (expr) => {
@@ -40,17 +43,36 @@ async function main() {
     if (r.result?.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails).slice(0, 400))
     return r.result?.result?.value
   }
+  // Screenshots are evidence, not the gate: if the compositor capture wedges
+  // (occluded window), retry via the renderer path, then skip instead of failing.
   const shot = async (name) => {
-    const r = await send('Page.captureScreenshot', { format: 'png' })
     const p = path.join(OUT, name)
-    fs.writeFileSync(p, Buffer.from(r.result.data, 'base64'))
-    return p
+    try {
+      const r = await send('Page.captureScreenshot', { format: 'png' }, 30000)
+      fs.writeFileSync(p, Buffer.from(r.result.data, 'base64'))
+      return p
+    } catch (e) {
+      try {
+        const r = await send('Page.captureScreenshot', { format: 'png', fromSurface: false }, 25000)
+        fs.writeFileSync(p, Buffer.from(r.result.data, 'base64'))
+        return p + ' [surfaceless]'
+      } catch (e2) {
+        console.log('SHOT_SKIPPED ' + name + ' — ' + String(e2.message || e2))
+        return '(skipped)'
+      }
+    }
   }
 
   await send('Page.enable')
   await send('Runtime.enable')
 
   // --- enter the main app offline: fake config + fake (unexpired) local session ---
+  // idempotent boot: log out, clear the origin (tasks/settings from prior runs),
+  // then seed. Clearing needs no open IndexedDB connection, hence the logout first.
+  await evalJs(`(() => { localStorage.removeItem('anjam.auth'); localStorage.removeItem('anjam.auth-user'); return 'out' })()`)
+  await send('Page.reload', { ignoreCache: true })
+  await sleep(1000)
+  await send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:4173', storageTypes: 'indexeddb,local_storage' })
   await evalJs(`(() => {
     const user = {
       id: '11111111-1111-1111-1111-111111111111',
@@ -94,6 +116,9 @@ async function main() {
   const f = JSON.parse(font)
   check('Vazirmatn loaded', f.loaded === true, f.body.slice(0, 80))
   check('RTL direction', f.dir === 'rtl', f.dir)
+
+  const fabD = await evalJs(`(() => { const f = document.querySelector('.fab'); return f ? f.getBoundingClientRect().width : -1 })()`)
+  check('fab hidden on desktop', fabD <= 0, String(fabD))
 
   // --- timer panel ---
   await evalJs(`document.querySelector('.timer-btn').click(); 'ok'`)
@@ -159,7 +184,7 @@ async function main() {
     const b = [...document.querySelectorAll('.timer-actions .btn')].find(x => /شروع تمرکز|Start focus/.test(x.textContent))
     b && b.click(); return b ? 'ok' : 'no-start'
   })()`)
-  await sleep(1600)
+  await sleep(2600)
   const pomRun = await evalJs(`JSON.stringify({
     phase: document.querySelector('.pom-phase')?.textContent || '',
     round: document.querySelector('.pom-round')?.textContent || '',
@@ -334,6 +359,172 @@ async function main() {
   await sleep(500)
   const planned2 = await evalJs(`JSON.stringify(window.__anjamAlarms.planned())`)
   check('mute cancels registration', JSON.parse(planned2).length === 0, planned2)
+
+  // --- routine view: habit heatmap calendar ---
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /روتين|Routine/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(500)
+  const rt = JSON.parse(await evalJs(`JSON.stringify({
+    wrap: !!document.querySelector('[data-testid=routine-wrap]'),
+    cells: document.querySelectorAll('.rh-cell').length,
+    weekdays: document.querySelectorAll('.rh-weekdays span').length,
+    title: document.querySelector('.rh-title')?.textContent || ''
+  })`))
+  check('routine view + heatmap 42 cells', rt.wrap && rt.cells === 42, JSON.stringify(rt))
+  check('routine weekday headers = 7', rt.weekdays === 7, String(rt.weekdays))
+  check('routine month title rendered', rt.title.length > 3, rt.title)
+
+  const segLabels = await evalJs(`[...document.querySelectorAll('.rh-head .cal-seg .seg-btn')].map(b => b.textContent.trim())`)
+  check('routine jalali/gregorian toggle present', segLabels.length === 2, segLabels.join('|'))
+  const t0 = await evalJs(`(() => {
+    const segs = [...document.querySelectorAll('.rh-head .cal-seg .seg-btn')];
+    const other = segs.find(s => !s.classList.contains('active'));
+    if (!other) return 'none';
+    other.click();
+    return document.querySelector('.rh-title')?.textContent || '';
+  })()`)
+  await sleep(500)
+  const t1 = await evalJs(`document.querySelector('.rh-title')?.textContent || ''`)
+  check('routine calendar system switches', t0 !== 'none' && t1 !== t0, t1 + ' (was ' + t0 + ')')
+  const t2 = await evalJs(`(() => {
+    const segs = [...document.querySelectorAll('.rh-head .cal-seg .seg-btn')];
+    const back = segs.find(s => !s.classList.contains('active'));
+    if (!back) return 'none';
+    back.click();
+    return 'back';
+  })()`)
+  await sleep(500)
+  const t3 = await evalJs(`document.querySelector('.rh-title')?.textContent || ''`)
+  check('routine calendar system restored', t2 !== 'none' && t3 !== t1 && t3 !== '', t3 + ' (back from ' + t1 + ', was ' + t0 + ')')
+  // land on the current month so today's cell is in-month for the day-detail test
+  await evalJs(`(() => { const b = [...document.querySelectorAll('.rh-head .btn')].find(x => /امروز|Today/.test(x.textContent)); b && b.click(); return !!b })()`)
+  await sleep(500)
+
+  // add a habit
+  await evalJs(`(() => {
+    const i = document.querySelector('[data-testid=habit-input]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(i, 'ورزش');
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    return 'typed'
+  })()`)
+  await sleep(250)
+  await evalJs(`document.querySelector('.habit-add .btn')?.click(); 'added'`)
+  await sleep(450)
+  const hr = JSON.parse(await evalJs(`JSON.stringify({
+    rows: document.querySelectorAll('[data-testid=habit-row]').length,
+    score: document.querySelector('[data-testid=r-today-score]')?.textContent || ''
+  })`))
+  check('habit added + empty-day score', hr.rows === 1 && hr.score.includes('/'), JSON.stringify(hr))
+
+  // check it off today -> score, streak, heatmap cell
+  await evalJs(`document.querySelector('[data-testid=habit-row] .check-btn')?.click(); 'toggled'`)
+  await sleep(450)
+  const ht = JSON.parse(await evalJs(`JSON.stringify({
+    score: (document.querySelector('[data-testid=r-today-score]')?.textContent || '').replace(/\s/g, ''),
+    streak: document.querySelector('[data-testid=r-streak]')?.textContent || '',
+    cellFull: (document.querySelector('[data-testid=rh-today]')?.className || '').includes('rh-full')
+  })`))
+  check('habit check -> score 1/1', ht.score === '1/1', JSON.stringify(ht))
+  check('streak = 1 after checking today', /^\s*1\s*$/.test(ht.streak), ht.streak)
+  check('today cell fills in heatmap', ht.cellFull, JSON.stringify(ht))
+
+  // day detail popover
+  await evalJs(`document.querySelector('[data-testid=rh-today]')?.click(); 'sel'`)
+  await sleep(700)
+  const dd = await evalJs(`!!document.querySelector('[data-testid=day-detail] .day-habit')`)
+  check('day detail opens with habit chips', dd === true, String(dd))
+
+  // cleanup: delete the habit, back to empty state, then return to task list
+  await evalJs(`(() => { window.confirm = () => true; document.querySelector('[data-testid=habit-row] .icon-btn')?.click(); return 'del' })()`)
+  await sleep(450)
+  const cleaned = await evalJs(`document.querySelectorAll('[data-testid=habit-row]').length === 0 && !!document.querySelector('.habit-empty')`)
+  check('habit deleted -> empty state', cleaned === true, String(cleaned))
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /صندوق ورودی|Inbox/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(450)
+  const backToList = await evalJs(`!!document.querySelector('.task-list')`)
+  check('returned to task list after routine', backToList === true, String(backToList))
+  await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
+  await sleep(300)
+
+  // --- important dates view: catalog suggestions + lead-time reminders ---
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /روزهای مهم|Key dates/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(500)
+  const dv = await evalJs(`!!document.querySelector('[data-testid=dates-view]')`)
+  check('dates view opens', dv === true, String(dv))
+  const suggN = await evalJs(`document.querySelectorAll('[data-testid=sugg-card]').length`)
+  check('suggestions catalog present', suggN >= 10, String(suggN))
+  const emptyD = await evalJs(`!!document.querySelector('[data-testid=dates-empty]')`)
+  check('dates empty state first run', emptyD === true, String(emptyD))
+  // seed through the QA hook; the row must render with countdown + lead chip
+  await evalJs(`window.__anjamDates.add({ title: 'تولد آزمایشی', system: 'gregorian', month: 12, day: 25, remind_days: 10, remind_time: '09:00' }).then(() => 'ok')`)
+  await sleep(550)
+  const rowInfo = await evalJs(`(() => {
+    const r = document.querySelector('[data-testid=date-row]')
+    if (!r) return JSON.stringify({ none: true })
+    return JSON.stringify({
+      hasRow: true,
+      lead: !!r.querySelector('[data-testid=date-lead-chip]'),
+      leadText: (r.querySelector('[data-testid=date-lead-chip]')?.textContent || '').slice(0, 40),
+      count: document.querySelectorAll('[data-testid=date-row]').length
+    })
+  })()`)
+  const ri = JSON.parse(rowInfo)
+  check('important date row renders', !!ri.hasRow && ri.count === 1 && !!ri.lead, rowInfo)
+  check('lead chip shows 10 days before', /۱۰|10/.test(String(ri.leadText)), String(ri.leadText))
+  // the alarm engine must plan a 'date:' ring while enabled…
+  await evalJs(`window.__anjamAlarms.sync(); 'sync'`)
+  await sleep(700)
+  const dp1 = await evalJs(`JSON.stringify(window.__anjamAlarms.planned().filter(x => String(x[0]).startsWith('date:')).map(x => x[0]))`)
+  check('date reminder planned', JSON.parse(dp1).length === 1, dp1)
+  // …and cancel it when the bell is muted
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=date-row] .icon-btn[aria-pressed]'); b && b.click(); return !!b })()`)
+  await sleep(450)
+  const offTxt = await evalJs(`document.querySelector('[data-testid=date-lead-chip]')?.textContent || ''`)
+  check('date reminder toggles off', /خاموش|off/i.test(offTxt), offTxt.slice(0, 30))
+  await evalJs(`window.__anjamAlarms.sync(); 'sync'`)
+  await sleep(600)
+  const dp2 = await evalJs(`JSON.stringify(window.__anjamAlarms.planned().filter(x => String(x[0]).startsWith('date:')))`)
+  check('muted date cancels planned ring', JSON.parse(dp2).length === 0, dp2)
+  // keep a suggestion: it must move out of the catalog into "my dates"
+  const beforeS = await evalJs(`document.querySelectorAll('[data-testid=sugg-card]').length`)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=sugg-add]'); b && b.click(); return !!b })()`)
+  await sleep(500)
+  const afterS = await evalJs(`document.querySelectorAll('[data-testid=sugg-card]').length`)
+  const keptN = await evalJs(`document.querySelectorAll('[data-testid=date-row]').length`)
+  check('suggestion kept -> moves to my dates', afterS === beforeS - 1 && keptN === 2, beforeS + '->' + afterS + ' rows=' + keptN)
+  // cleanup both rows (confirm pre-overridden below per-click)
+  for (let i = 0; i < 2; i++) {
+    await evalJs(`(() => { window.confirm = () => true; document.querySelector('[data-testid=date-row] .icon-btn.danger')?.click(); return 'del' })()`)
+    await sleep(450)
+  }
+  const datesClean = await evalJs(`document.querySelectorAll('[data-testid=date-row]').length === 0`)
+  check('dates cleaned up', datesClean === true, String(datesClean))
+  await evalJs(`(() => { const n = [...document.querySelectorAll('.nav-item')].find(x => /صندوق ورودی|Inbox/.test(x.textContent)); n && n.click(); return !!n })()`)
+  await sleep(450)
+
+  // --- weather chip (network-tolerant: offline shows a placeholder) ---
+  const wc = await evalJs(`(() => {
+    const b = document.querySelector('[data-testid=weather-chip]')
+    if (!b) return JSON.stringify({ has: false })
+    return JSON.stringify({ has: true, temp: (b.querySelector('.wc-temp')?.textContent || '').trim() })
+  })()`)
+  const wj = JSON.parse(wc)
+  check('weather chip present', wj.has === true, wc)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid=weather-chip]'); b && b.click(); return 'open' })()`)
+  await sleep(3000)
+  const wp = await evalJs(`(() => {
+    const p = document.querySelector('[data-testid=weather-pop]')
+    if (!p) return JSON.stringify({ open: false })
+    return JSON.stringify({
+      open: true,
+      temp: (p.querySelector('.wp-temp')?.textContent || '').trim(),
+      cond: (p.querySelector('.wp-cond')?.textContent || '').trim(),
+      place: (p.querySelector('.wp-place b')?.textContent || '').trim()
+    })
+  })()`)
+  const wpj = JSON.parse(wp)
+  check('weather popover opens', wpj.open === true, wp)
+  check('weather data or offline placeholder', !!wpj.open && (!wpj.temp || /[0-9۰-۹]/.test(wpj.temp)), wp)
   await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
   await sleep(300)
 
@@ -351,6 +542,9 @@ async function main() {
   const mb = JSON.parse(mob)
   check('no horizontal overflow @390px', mb.hOverflow, 'w=' + mb.w)
   check('layout viewport is 390', mb.w === 390, String(mb.w))
+
+  const fabM = await evalJs(`(() => { const f = document.querySelector('.fab'); return f ? f.getBoundingClientRect().width : -1 })()`)
+  check('fab visible @390', fabM > 40, String(fabM))
   console.log('MOBILE_FILE:', await shot('14-mobile-390.png'))
 
   // topbar wraps: search gets its own second row, lang toggle hidden (Settings keeps it)
@@ -406,6 +600,49 @@ async function main() {
     `[...document.querySelectorAll('.settings-section h3')].some(h => /زنگ و اعلان|Alarms/.test(h.textContent))`
   )
   check('alarm diagnostics section hidden on web', !alarmSecSeen, String(alarmSecSeen))
+
+  const ap = await evalJs(`(() => {
+    const sec = [...document.querySelectorAll('.settings-section h3')].some(h => /ظاهر|Appearance/.test(h.textContent));
+    return { sec, sw: document.querySelectorAll('.accent-swatch').length };
+  })()`)
+  check('appearance section + 6 accent swatches', ap.sec && ap.sw >= 6, JSON.stringify(ap))
+
+  const motionOk = await evalJs(`(() => {
+    const btns = [...document.querySelectorAll('.settings-section .seg-btn')];
+    const off = btns.find(b => /^(کم|Minimal)$/.test(b.textContent.trim()));
+    if (!off) return 'no-off-btn';
+    off.click();
+    const gone = document.documentElement.dataset.motion === 'off';
+    const on = btns.find(b => /^(نرم|Smooth)$/.test(b.textContent.trim()));
+    on && on.click();
+    return gone && document.documentElement.dataset.motion !== 'off';
+  })()`)
+  check('motion toggle works', motionOk === true, String(motionOk))
+
+  const fsOk = await evalJs(`(() => {
+    const btns = [...document.querySelectorAll('.settings-section .seg-btn')];
+    const lg = btns.find(b => /^(بزرگ|Large)$/.test(b.textContent.trim()));
+    if (!lg) return 'no-lg-btn';
+    lg.click();
+    const set = document.documentElement.dataset.fs === 'lg';
+    const md = btns.find(b => /^(متوسط|Medium)$/.test(b.textContent.trim()));
+    md && md.click();
+    return set && document.documentElement.dataset.fs !== 'lg';
+  })()`)
+  check('font-size toggle works', fsOk === true, String(fsOk))
+
+  const accOk = await evalJs(`(() => {
+    const sw = [...document.querySelectorAll('.accent-swatch')];
+    if (sw.length < 6) return 'few:' + sw.length;
+    const before = document.documentElement.style.getPropertyValue('--accent');
+    sw[4].click();
+    const after = document.documentElement.style.getPropertyValue('--accent');
+    if (before) document.documentElement.style.setProperty('--accent', before);
+    else document.documentElement.style.removeProperty('--accent');
+    localStorage.removeItem('anjam.accent');
+    return !!after && after !== before;
+  })()`)
+  check('accent swatch applies', accOk === true, String(accOk))
   console.log('SHEET_MOBILE_FILE:', await shot('17-settings-sheet.png'))
   await evalJs(`(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }); window.dispatchEvent(e); return 'esc' })()`)
   await sleep(300)

@@ -102,8 +102,8 @@ export default function TaskList({
             </div>
           )}
           <div className="task-list">
-            {g.items.map((task) => (
-              <TaskRowView key={task.id} lang={lang} task={task} selected={selected === task.id} onOpen={onOpen} />
+            {g.items.map((task, i) => (
+              <TaskRowView key={task.id} lang={lang} task={task} index={i} selected={selected === task.id} onOpen={onOpen} />
             ))}
           </div>
         </div>

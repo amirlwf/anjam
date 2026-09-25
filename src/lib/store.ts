@@ -1,7 +1,7 @@
-import type { LabelRow, ListRow, Priority, Recurrence, TaskRow, View } from '../types'
+import type { HabitRow, ImportantDateRow, LabelRow, ListRow, Priority, Recurrence, TaskRow, View } from '../types'
 import { idbGetAll, idbPut } from './idb'
 import { enqueue, onPulled } from './sync'
-import { nowISO, tsOf, uuid, sameDay, startOfDay } from './util'
+import { nowISO, tsOf, uuid, sameDay, startOfDay, localDate } from './util'
 import { nextOccurrence } from './nlp'
 
 export interface StoreState {
@@ -10,9 +10,11 @@ export interface StoreState {
   tasks: TaskRow[]
   lists: ListRow[]
   labels: LabelRow[]
+  habits: HabitRow[]
+  dates: ImportantDateRow[]
 }
 
-let state: StoreState = { ready: false, userId: '', tasks: [], lists: [], labels: [] }
+let state: StoreState = { ready: false, userId: '', tasks: [], lists: [], labels: [], habits: [], dates: [] }
 const subs = new Set<() => void>()
 
 function emit(): void {
@@ -24,7 +26,10 @@ function set(partial: Partial<StoreState>): void {
   emit()
 }
 
-async function persist(table: 'tasks' | 'lists' | 'labels', row: TaskRow | ListRow | LabelRow): Promise<void> {
+async function persist(
+  table: 'tasks' | 'lists' | 'labels' | 'habits' | 'important_dates',
+  row: TaskRow | ListRow | LabelRow | HabitRow | ImportantDateRow
+): Promise<void> {
   await idbPut(table, row)
   await enqueue(table, row as never)
 }
@@ -38,12 +43,14 @@ export const store = {
     return state
   },
   async load(userId: string): Promise<void> {
-    const [tasks, lists, labels] = await Promise.all([
+    const [tasks, lists, labels, habits, dates] = await Promise.all([
       idbGetAll<TaskRow>('tasks'),
       idbGetAll<ListRow>('lists'),
       idbGetAll<LabelRow>('labels'),
+      idbGetAll<HabitRow>('habits'),
+      idbGetAll<ImportantDateRow>('important_dates'),
     ])
-    set({ ready: true, userId, tasks, lists, labels })
+    set({ ready: true, userId, tasks, lists, labels, habits, dates })
   },
 }
 
@@ -208,6 +215,162 @@ export async function destroyLabel(id: string): Promise<void> {
   }
 }
 
+/* ---------------- habits (routine) ---------------- */
+
+export async function addHabit(name: string, color?: string, userId?: string): Promise<HabitRow> {
+  const now = nowISO()
+  const palette = ['#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6', '#14b8a6']
+  const maxOrder = state.habits.reduce((m, x) => Math.max(m, x.sort_order), 0)
+  const habit: HabitRow = {
+    id: uuid(),
+    user_id: userId || state.userId,
+    name: name.trim(),
+    color: color || palette[state.habits.length % palette.length],
+    logs: [],
+    sort_order: maxOrder + 1,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ habits: [...state.habits, habit] })
+  await persist('habits', habit)
+  return habit
+}
+
+export async function updateHabit(id: string, patch: Partial<HabitRow>): Promise<void> {
+  const i = state.habits.findIndex((x) => x.id === id)
+  if (i < 0) return
+  const next: HabitRow = { ...state.habits[i], ...patch, id, updated_at: nowISO() }
+  const habits = state.habits.slice()
+  habits[i] = next
+  set({ habits })
+  await persist('habits', next)
+}
+
+export async function destroyHabit(id: string): Promise<void> {
+  await updateHabit(id, { deleted: true })
+}
+
+/** Toggle completion of a habit for a Gregorian day (YYYY-MM-DD). */
+export function toggleHabitDay(id: string, day: string): void {
+  const h = state.habits.find((x) => x.id === id)
+  if (!h) return
+  const logs = h.logs.includes(day) ? h.logs.filter((d) => d !== day) : [...h.logs, day].sort()
+  void updateHabit(id, { logs })
+}
+
+export function liveHabits(): HabitRow[] {
+  return state.habits.filter((x) => !x.deleted)
+}
+
+/* ---------------- important dates ---------------- */
+
+export async function addImportantDate(
+  input: {
+    title: string
+    system: 'jalali' | 'gregorian' | 'hijri'
+    month: number
+    day: number
+    remind_days?: number
+    remind_time?: string
+    source?: string | null
+  },
+  userId?: string
+): Promise<ImportantDateRow> {
+  const now = nowISO()
+  const row: ImportantDateRow = {
+    id: uuid(),
+    user_id: userId || state.userId,
+    title: input.title.trim(),
+    system: input.system,
+    month: input.month,
+    day: input.day,
+    remind_days: input.remind_days ?? 10,
+    remind_time: input.remind_time || '09:00',
+    enabled: true,
+    source: input.source ?? null,
+    created_at: now,
+    updated_at: now,
+    deleted: false,
+  }
+  set({ dates: [...state.dates, row] })
+  await persist('important_dates', row)
+  return row
+}
+
+export async function updateImportantDate(id: string, patch: Partial<ImportantDateRow>): Promise<void> {
+  const i = state.dates.findIndex((x) => x.id === id)
+  if (i < 0) return
+  const next: ImportantDateRow = { ...state.dates[i], ...patch, id, updated_at: nowISO() }
+  const dates = state.dates.slice()
+  dates[i] = next
+  set({ dates })
+  await persist('important_dates', next)
+}
+
+export async function destroyImportantDate(id: string): Promise<void> {
+  await updateImportantDate(id, { deleted: true })
+}
+
+export function liveDates(): ImportantDateRow[] {
+  return state.dates.filter((x) => !x.deleted)
+}
+
+/**
+ * Score for a calendar day: of the habits that already existed that day,
+ * how many are logged. Used by the heatmap, today stats and streaks.
+ */
+export function dayScore(day: string, habits: HabitRow[] = state.habits): { done: number; total: number } {
+  const active = habits.filter((x) => !x.deleted && localDate(new Date(x.created_at)) <= day)
+  const total = active.length
+  const done = active.filter((h) => h.logs.includes(day)).length
+  return { done, total }
+}
+
+/** Current / best run of consecutive fully-completed days. */
+export function routineStreak(habits: HabitRow[] = state.habits): { cur: number; best: number } {
+  const live = habits.filter((x) => !x.deleted)
+  if (!live.length) return { cur: 0, best: 0 }
+  const full = (day: string) => {
+    const s = dayScore(day, habits)
+    return s.total > 0 && s.done === s.total
+  }
+  let cur = 0
+  const cursor = new Date()
+  // a streak survives until the current day is actually missed
+  if (!full(localDate(cursor))) cursor.setDate(cursor.getDate() - 1)
+  while (full(localDate(cursor))) {
+    cur++
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  let best = 0
+  let run = 0
+  const scan = new Date()
+  for (let i = 0; i < 366; i++) {
+    if (full(localDate(scan))) {
+      run++
+      if (run > best) best = run
+    } else {
+      run = 0
+    }
+    scan.setDate(scan.getDate() - 1)
+  }
+  return { cur, best }
+}
+
+/** Days this single habit has been done in a row (ending today or yesterday). */
+export function habitStreak(h: HabitRow): number {
+  const has = (day: string) => h.logs.includes(day)
+  const cursor = new Date()
+  if (!has(localDate(cursor))) cursor.setDate(cursor.getDate() - 1)
+  let n = 0
+  while (has(localDate(cursor))) {
+    n++
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  return n
+}
+
 /* ---------------- helpers ---------------- */
 
 export function liveTasks(): TaskRow[] {
@@ -251,6 +414,12 @@ export function matchesView(t: TaskRow, view: View): boolean {
       return t.list_id === view.id
     case 'label':
       return t.labels.includes(view.name)
+    case 'routine':
+      // the routine view renders its own component, never the task list
+      return false
+    case 'dates':
+      // same — the dates view is its own component
+      return false
   }
 }
 
@@ -267,6 +436,14 @@ export function sortTasks(arr: TaskRow[]): TaskRow[] {
   })
 }
 
+// Debug / QA hook — lets the harness seed & clean dates without UI clicks.
+;(window as unknown as Record<string, unknown>).__anjamDates = {
+  add: addImportantDate,
+  update: updateImportantDate,
+  destroy: destroyImportantDate,
+  list: liveDates,
+}
+
 export function exportJson(): string {
   return JSON.stringify(
     {
@@ -276,6 +453,8 @@ export function exportJson(): string {
       tasks: state.tasks,
       lists: state.lists,
       labels: state.labels,
+      habits: state.habits,
+      dates: state.dates,
     },
     null,
     2

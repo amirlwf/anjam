@@ -9,11 +9,13 @@
 
 | پلتفرم | فایل |
 |---|---|
-| اندروید | [`Anjam-1.1.0.apk`](https://github.com/amirlwf/anjam/releases/download/v1.1.2/Anjam-1.1.0.apk) |
-| ویندوز (نصب‌کننده) | [`Anjam-Setup-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.1.2/Anjam-Setup-1.1.0.exe) |
-| ویندوز (پورتبل) | [`Anjam-Portable-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.1.2/Anjam-Portable-1.1.0.exe) |
+| اندروید | [`Anjam-1.1.0.apk`](https://github.com/amirlwf/anjam/releases/download/v1.2.0/Anjam-1.1.0.apk) |
+| ویندوز (نصب‌کننده) | [`Anjam-Setup-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.2.0/Anjam-Setup-1.1.0.exe) |
+| ویندوز (پورتبل) | [`Anjam-Portable-1.1.0.exe`](https://github.com/amirlwf/anjam/releases/download/v1.2.0/Anjam-Portable-1.1.0.exe) |
 
-> همه در [ریلیز v1.1.1](https://github.com/amirlwf/anjam/releases/tag/v1.1.2) — یا ساخت محلی: `npm install && npm run release:win`
+> همه در [ریلیز v1.1.1](https://github.com/amirlwf/anjam/releases/tag/v1.2.0) — یا ساخت محلی: `npm install && npm run release:win`
+
+**v1.2.0:** بازطراحی UI/UX — کارت‌های لیست، FAB موبایل، bottom-sheet فنری، لوگوی بزرگ‌تر، بخش «ظاهر» (رنگ برند/انیمیشن/اندازه متن)
 
 **v1.1.2:** رفع کامل هسته‌ی زنگ اندروید (ثبت پلاگین، مجوز اعلان، بازیابی بعد از ری‌استارت) + بخش وضعیت مجوزها و دکمه‌ی «تست زنگ» در تنظیمات
 

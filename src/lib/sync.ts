@@ -5,8 +5,14 @@ import { nowISO, tsOf, debounce } from './util'
 
 type AnyRow = Record<string, unknown> & { id: string; updated_at: string; user_id: string }
 
-const TABLES: Table[] = ['lists', 'labels', 'tasks']
-const CURSORS: Record<Table, string> = { lists: 'c:lists', labels: 'c:labels', tasks: 'c:tasks' }
+const TABLES: Table[] = ['lists', 'labels', 'tasks', 'habits', 'important_dates']
+const CURSORS: Record<Table, string> = {
+  lists: 'c:lists',
+  labels: 'c:labels',
+  tasks: 'c:tasks',
+  habits: 'c:habits',
+  important_dates: 'c:important_dates',
+}
 
 interface OutboxItem {
   key: string

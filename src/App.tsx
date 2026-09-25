@@ -11,9 +11,13 @@ import Auth from './components/Auth'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import QuickAdd from './components/QuickAdd'
+import Routine from './components/Routine'
+import Dates from './components/Dates'
 import TaskList from './components/TaskList'
 import TaskDetail from './components/TaskDetail'
 import Settings from './components/Settings'
+import { Plus } from './components/Icons'
+import logo from './assets/logo.png'
 
 type Phase = 'boot' | 'setup' | 'auth' | 'app'
 
@@ -34,6 +38,10 @@ function viewTitle(lang: Lang, view: View): string {
       return tt('priorities')
     case 'label':
       return '#' + view.name
+    case 'routine':
+      return tt('routine')
+    case 'dates':
+      return tt('datesTitle')
     case 'list': {
       const list = store.getState().lists.find((l) => l.id === view.id)
       return list ? list.name : tt('projects')
@@ -153,7 +161,9 @@ export default function App() {
   if (phase === 'boot') {
     return (
       <div className="boot">
-        <div className="boot-mark">✓</div>
+        <div className="boot-mark">
+          <img className="boot-logo" src={logo} alt="" />
+        </div>
         <p className="muted">{t(lang, 'loading')}</p>
       </div>
     )
@@ -185,10 +195,10 @@ export default function App() {
           onSignOut={() => void signOut()}
         />
         <main className="view">
-          <div className="view-head">
+          <div className="view-head" key={JSON.stringify(view)}>
             <h2>{viewTitle(lang, view)}</h2>
             <div className="view-actions">
-              {view.kind !== 'completed' && (
+              {view.kind !== 'completed' && view.kind !== 'routine' && (
                 <button className="btn ghost small" onClick={() => setShowCompleted((v) => !v)}>
                   {showCompleted ? t(lang, 'hideCompleted') : t(lang, 'showCompleted')}
                 </button>
@@ -221,16 +231,35 @@ export default function App() {
               )}
             </div>
           </div>
-          <QuickAdd lang={lang} defaultListId={listId} />
-          <TaskList
-            lang={lang}
-            view={view}
-            query={query}
-            showCompleted={showCompleted}
-            selected={selected}
-            onOpen={setSelected}
-          />
+          {view.kind === 'routine' ? (
+            <Routine lang={lang} />
+          ) : view.kind === 'dates' ? (
+            <Dates lang={lang} />
+          ) : (
+            <>
+              <QuickAdd lang={lang} defaultListId={listId} />
+              <TaskList
+                lang={lang}
+                view={view}
+                query={query}
+                showCompleted={showCompleted}
+                selected={selected}
+                onOpen={setSelected}
+              />
+            </>
+          )}
         </main>
+        <button
+          className="fab only-mobile"
+          aria-label={t(lang, 'addTask')}
+          onClick={() => {
+            const el = document.getElementById('quickadd-input')
+            el?.focus({ preventScroll: true })
+            el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          }}
+        >
+          <Plus width={24} height={24} />
+        </button>
       </div>
       {selected && <TaskDetail lang={lang} taskId={selected} onClose={() => setSelected(null)} />}
       {settingsOpen && (

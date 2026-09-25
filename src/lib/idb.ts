@@ -1,7 +1,7 @@
-export type StoreName = 'tasks' | 'lists' | 'labels' | 'outbox' | 'meta'
+export type StoreName = 'tasks' | 'lists' | 'labels' | 'habits' | 'important_dates' | 'outbox' | 'meta'
 
 const DB_NAME = 'anjam'
-const DB_VERSION = 1
+const DB_VERSION = 3
 
 let dbp: Promise<IDBDatabase> | null = null
 
@@ -11,7 +11,7 @@ export function openDB(): Promise<IDBDatabase> {
       const req = indexedDB.open(DB_NAME, DB_VERSION)
       req.onupgradeneeded = () => {
         const db = req.result
-        for (const s of ['tasks', 'lists', 'labels'] as const) {
+        for (const s of ['tasks', 'lists', 'labels', 'habits', 'important_dates'] as const) {
           if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'id' })
         }
         if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' })

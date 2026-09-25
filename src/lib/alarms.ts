@@ -17,6 +17,7 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import { store } from './store'
 import type { Lang } from '../types'
 import { t } from './i18n'
+import { rowNext, daysUntil } from './occasions'
 import { alarmBridge, startTimer, cancelTimer, getTimer, ringSoft, type AlarmLabels } from './timer'
 
 const MUTE_KEY = 'anjam.alarms.muted'
@@ -99,6 +100,38 @@ function desiredAlarms(): Desired[] {
     if (done === at) continue // already rang for this exact due time
     if (task.title.trim() === '') continue
     out.push({ id: task.id, at, title: task.title.trim() })
+  }
+
+  // Important dates: ring `remind_days` before the next yearly occurrence,
+  // at the row's local remind time. Past lead windows roll to next year.
+  const l = lang()
+  for (const r of store.getState().dates) {
+    if (r.deleted || !r.enabled || r.title.trim() === '') continue
+    const occ = rowNext(r, new Date(now))
+    const [hhRaw, mmRaw] = r.remind_time.split(':')
+    const hh = Number(hhRaw)
+    const mm = Number(mmRaw)
+    const atBase = new Date(
+      occ.getFullYear(), occ.getMonth(), occ.getDate(),
+      Number.isFinite(hh) ? hh : 9,
+      Number.isFinite(mm) ? mm : 0,
+      0, 0
+    )
+    const at = atBase.getTime() - r.remind_days * 86_400_000
+    if (at < now - MISSED_WINDOW_MS) continue // lead window already passed — next year
+    const id = 'date:' + r.id
+    if (muted.has(id)) continue
+    const done = handled.get(id)
+    if (done === at) continue
+    const left = daysUntil(occ, new Date(now))
+    const title = r.remind_days > 0
+      ? l === 'fa'
+        ? `${r.title} — ${left} روز مانده`
+        : `${r.title} — ${left} days left`
+      : l === 'fa'
+        ? `امروز: ${r.title}`
+        : `Today: ${r.title}`
+    out.push({ id, at, title })
   }
   return out
 }

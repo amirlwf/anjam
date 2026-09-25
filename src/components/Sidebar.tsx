@@ -1,8 +1,9 @@
 import { useSyncExternalStore, useState } from 'react'
 import type { Lang, View } from '../types'
 import { t } from '../lib/i18n'
-import { store, addList, addLabel, dueBucket } from '../lib/store'
-import { CalendarDay, CalendarRange, CheckCircle, Folder, Inbox, Layers, Flag, Plus, Tag, X } from './Icons'
+import { store, addList, addLabel, dueBucket, dayScore } from '../lib/store'
+import { localDate } from '../lib/util'
+import { CalendarCheck, CalendarDay, CalendarRange, CheckCircle, Folder, Gift, Inbox, Layers, Flag, Plus, Tag, X } from './Icons'
 import logo from '../assets/logo.png'
 
 function useStore() {
@@ -42,6 +43,10 @@ export default function Sidebar({
     }).length,
     completed: live.filter((x) => x.status === 'done').length,
     priority: todo.filter((x) => x.priority > 0).length,
+    routine: (() => {
+      const s = dayScore(localDate())
+      return Math.max(0, s.total - s.done)
+    })(),
   }
 
   const lists = st.lists.filter((x) => !x.deleted).sort((a, b) => a.sort_order - b.sort_order)
@@ -97,6 +102,8 @@ export default function Sidebar({
         <Item v={{ kind: 'inbox' }} icon={<Inbox />} label={tt('inbox')} count={counts.inbox} />
         <Item v={{ kind: 'today' }} icon={<CalendarDay />} label={tt('today')} count={counts.today} />
         <Item v={{ kind: 'upcoming' }} icon={<CalendarRange />} label={tt('upcoming')} count={counts.upcoming} />
+        <Item v={{ kind: 'routine' }} icon={<CalendarCheck />} label={tt('routine')} count={counts.routine} />
+        <Item v={{ kind: 'dates' }} icon={<Gift />} label={tt('datesNav')} />
         <Item v={{ kind: 'priority' }} icon={<Flag />} label={tt('priorities')} count={counts.priority} />
         <Item v={{ kind: 'all' }} icon={<Layers />} label={tt('all')} />
         <Item v={{ kind: 'completed' }} icon={<CheckCircle />} label={tt('completed')} count={counts.completed} />

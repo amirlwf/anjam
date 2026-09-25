@@ -49,8 +49,40 @@ create table if not exists public.tasks (
   deleted     boolean not null default false
 );
 
+-- ---------- habits (routine) ----------
+create table if not exists public.habits (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name       text not null,
+  color      text not null default '#10b981',
+  logs       text[] not null default '{}',
+  sort_order double precision not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false
+);
+
+-- ---------- important_dates (key dates with lead-time reminders) ----------
+create table if not exists public.important_dates (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  title        text not null,
+  system       text not null default 'jalali' check (system in ('jalali', 'gregorian', 'hijri')),
+  month        int  not null check (month between 1 and 12),
+  day          int  not null check (day between 1 and 31),
+  remind_days  int  not null default 10 check (remind_days between 0 and 365),
+  remind_time  text not null default '09:00',
+  enabled      boolean not null default true,
+  source       text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  deleted      boolean not null default false
+);
+
 -- ---------- indexes ----------
 create index if not exists lists_user_updated on public.lists (user_id, updated_at);
+create index if not exists habits_user_updated on public.habits (user_id, updated_at);
+create index if not exists important_dates_user_updated on public.important_dates (user_id, updated_at);
 create index if not exists labels_user_updated on public.labels (user_id, updated_at);
 create index if not exists tasks_user_updated on public.tasks (user_id, updated_at);
 create index if not exists tasks_list_id       on public.tasks (list_id);
@@ -59,6 +91,8 @@ create index if not exists tasks_due_at        on public.tasks (user_id, due_at)
 
 -- ---------- row level security ----------
 alter table public.lists  enable row level security;
+alter table public.habits enable row level security;
+alter table public.important_dates enable row level security;
 alter table public.labels enable row level security;
 alter table public.tasks  enable row level security;
 
@@ -67,6 +101,10 @@ drop policy if exists labels_owner_all on public.labels;
 drop policy if exists tasks_owner_all  on public.tasks;
 
 create policy lists_owner_all  on public.lists  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists habits_owner_all on public.habits;
+create policy habits_owner_all on public.habits for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists important_dates_owner_all on public.important_dates;
+create policy important_dates_owner_all on public.important_dates for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy labels_owner_all on public.labels for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy tasks_owner_all  on public.tasks  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -81,5 +119,11 @@ begin
   exception when others then null; end;
   begin
     alter publication supabase_realtime add table public.tasks;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.habits;
+  exception when others then null; end;
+  begin
+    alter publication supabase_realtime add table public.important_dates;
   exception when others then null; end;
 end $$;

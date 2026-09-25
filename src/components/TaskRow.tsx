@@ -8,11 +8,13 @@ export default function TaskRowView({
   task,
   selected,
   onOpen,
+  index = 0,
 }: {
   lang: Lang
   task: Task
   selected: boolean
   onOpen: (id: string) => void
+  index?: number
 }) {
   const tt = (k: string) => t(lang, k)
   const children = subtasksOf(task.id)
@@ -30,6 +32,7 @@ export default function TaskRowView({
   return (
     <div
       className={`task-row ${task.status === 'done' ? 'done' : ''} ${selected ? 'selected' : ''}`}
+      style={{ '--i': Math.min(index, 14) } as React.CSSProperties}
       onClick={() => onOpen(task.id)}
     >
       <button
