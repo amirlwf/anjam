@@ -20,6 +20,9 @@ import {
   pickAlert, isClosureSignal, regionTerms, dedupeTitles, isFresh, rss2jsonUrl, fetchCandidates,
   QUERIES,
 } from '../src/lib/news.ts'
+import {
+  buildBackup, validateBackup, summarize, collectPrefs, isSecretKey, TABLES, BACKUP_VERSION,
+} from '../src/lib/backup.ts'
 
 let pass = 0
 const failures = []
@@ -428,6 +431,79 @@ eq('news: near-identical titles collapse',
 /* region vocabulary */
 check('news: هشتگرد knows its province', regionTerms('هشتگرد').includes('البرز'))
 check('news: تهران is not silently treated as Alborz', !regionTerms('تهران').includes('البرز'))
+/* --------------------------------------------- local backup (US5, SC-06) */
+/* Two guarantees: one file restores everything, and a bad file writes
+ * nothing. Both are decided here, before any IndexedDB call, so they are
+ * testable without a browser. */
+
+const fakeStorage = (pairs) => {
+  const map = new Map(pairs)
+  return {
+    get length() { return map.size },
+    key: (i) => [...map.keys()][i] ?? null,
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { map.set(k, String(v)) },
+    removeItem: (k) => { map.delete(k) },
+  }
+}
+
+const samplePrefs = fakeStorage([
+  ['anjam.skin', 'indigo'],
+  ['anjam.themeMode', 'dark'],
+  ['anjam.news.region', 'هشتگرد'],
+  ['anjam.auth', '{"access_token":"SECRET"}'],
+  ['anjam.aikey', 'sk-or-v1-SECRET'],
+  ['other.key', 'ignored'],
+])
+
+const collected = collectPrefs(samplePrefs)
+eq('backup: prefs collected', Object.keys(collected).length, 3)
+check('backup: auth token is excluded', !('anjam.auth' in collected))
+check('backup: AI key is excluded', !('anjam.aikey' in collected))
+check('backup: non-anjam keys are ignored', !('other.key' in collected))
+check('backup: secret detection is per-key', isSecretKey('anjam.auth') && !isSecretKey('anjam.skin'))
+
+const goodData = {
+  tasks: [{ id: 't1', updated_at: 'x' }],
+  lists: [], labels: [], habits: [], dates: [], subjects: [],
+  slots: [{ id: 's1', updated_at: 'x' }, { id: 's2', updated_at: 'x' }],
+  homework: [], studyLogs: [], workoutPlans: [], workoutLogs: [],
+}
+const built = buildBackup(goodData, '2026-09-25T21:00:00.000Z')
+eq('backup: envelope app', built.app, 'anjam')
+eq('backup: envelope version', built.version, BACKUP_VERSION)
+eq('backup: envelope carries prefs', Object.keys(built.prefs).length, 0)
+
+const good = validateBackup(JSON.parse(JSON.stringify({ ...built, prefs: { 'anjam.skin': 'indigo' } })))
+check('backup: a well-formed file validates', good.ok === true, JSON.stringify(good.errors))
+eq('backup: no validation errors on a good file', good.errors.length, 0)
+
+const badCases = [
+  ['corrupt JSON', 'not-json', 'not an object'],
+  ['wrong app', { ...built, app: 'other' }, 'app is not'],
+  ['newer version', { ...built, version: BACKUP_VERSION + 1 }, 'newer than'],
+  ['missing data', { app: 'anjam', version: 2, exported_at: 'x', prefs: {} }, 'data table missing'],
+  ['missing table', { ...built, data: { ...goodData, tasks: undefined } }, 'table tasks missing'],
+  ['row without id', { ...built, data: { ...goodData, tasks: [{ updated_at: 'x' }] } }, 'table tasks row 0 has no id'],
+  ['missing exported_at', { app: 'anjam', version: 2, prefs: {}, data: goodData }, 'exported_at missing'],
+]
+for (const [label, payload, expect] of badCases) {
+  const v = validateBackup(payload)
+  check(`backup: rejected — ${label}`, v.ok === false && v.file === null, JSON.stringify(v.errors))
+  check(`backup: rejected with a reason — ${label}`, v.errors.some((e) => e.includes(expect)), JSON.stringify(v.errors))
+}
+
+/* the summary the user confirms against, T044 */
+const sum = summarize({ ...built, prefs: { a: '1', b: '2' } })
+eq('backup: summary version', sum.version, BACKUP_VERSION)
+eq('backup: summary prefs count', sum.prefs, 2)
+eq('backup: summary row total', sum.rows, 3)
+eq('backup: summary has every table', sum.tables.length, TABLES.length)
+check('backup: summary names the big table', sum.tables.find((t) => t.key === 'tasks').count === 1)
+
+/* a v1.3 export (version 1, no prefs) must still restore */
+const legacy = validateBackup({ app: 'anjam', version: 1, exported_at: '2026-01-01', data: goodData })
+check('backup: v1 exports still validate', legacy.ok === true, JSON.stringify(legacy.errors))
 /* ------------------------------------------------------- report */
 if (failures.length) {
   console.error(`UNIT_FAIL ${pass} passed, ${failures.length} failed`)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Lang, SectionKey, SyncStatus, ThemePref } from '../types'
 import { t, fmtDate } from '../lib/i18n'
 import { loadConfig, saveConfig } from '../lib/config'
@@ -6,6 +6,9 @@ import { getClient, resetClient } from '../lib/supabaseClient'
 import { createClient } from '@supabase/supabase-js'
 import { onSyncStatus, syncNow } from '../lib/sync'
 import { exportJson, store } from '../lib/store'
+import { buildBackup, validateBackup, summarize, downloadBackup, type BackupFile, type Summary } from '../lib/backup'
+import { restoreBackup } from '../lib/backupIo'
+import { prefs } from '../lib/config'
 import { getSections, setSection } from '../lib/sections'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
@@ -64,6 +67,10 @@ export default function Settings({
   const nativeAlarms = Capacitor.isNativePlatform()
   const [ast, setAst] = useState<AlarmStatus | null>(null)
   const [ringTest, setRingTest] = useState<'idle' | 'scheduled' | 'fail'>('idle')
+  /* ---- local backup (US5) ---- */
+  const backupFileRef = useRef<HTMLInputElement>(null)
+  const [pendingRestore, setPendingRestore] = useState<{ file: BackupFile; summary: Summary } | null>(null)
+  const [backupMsg, setBackupMsg] = useState('')
 
   useEffect(() => {
     const un = onSyncStatus(setSync)
@@ -147,6 +154,77 @@ export default function Settings({
     window.location.reload()
   }
 
+  /* --------------------------------------------------------------------
+   * Local backup (US5).
+   *
+   * Export writes one file and stamps the time. Import never touches the
+   * database before the file has validated and the user has seen the row
+   * counts: a wrong file is rejected with a reason, and a write that fails
+   * half-way rolls back to the pre-import snapshot (T044/T045).
+   * -------------------------------------------------------------------- */
+
+  function handleBackupExport() {
+    try {
+      const st = store.getState()
+      const file = buildBackup(
+        {
+          tasks: st.tasks,
+          lists: st.lists,
+          labels: st.labels,
+          habits: st.habits,
+          dates: st.dates,
+          subjects: st.subjects,
+          slots: st.slots,
+          homework: st.homework,
+          studyLogs: st.studyLogs,
+          workoutPlans: st.workoutPlans,
+          workoutLogs: st.workoutLogs,
+        },
+        new Date().toISOString(),
+      )
+      const name = downloadBackup(file)
+      prefs.setBackupLastExport(Date.now())
+      setBackupMsg(`${tt('backupExported')}: ${name}`)
+    } catch (e) {
+      setBackupMsg(`${tt('backupInvalid')}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  async function handleBackupFile(el: HTMLInputElement) {
+    const f = el.files && el.files[0]
+    el.value = ''
+    if (!f) return
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await f.text())
+    } catch {
+      setPendingRestore(null)
+      setBackupMsg(tt('backupInvalid'))
+      return
+    }
+    const v = validateBackup(parsed)
+    if (!v.ok || !v.file) {
+      setPendingRestore(null)
+      setBackupMsg(`${tt('backupInvalid')} — ${v.errors.join(', ')}`)
+      return
+    }
+    setBackupMsg('')
+    setPendingRestore({ file: v.file, summary: summarize(v.file) })
+  }
+
+  async function confirmRestore() {
+    if (!pendingRestore) return
+    const res = await restoreBackup(pendingRestore.file)
+    setPendingRestore(null)
+    if (res.ok) {
+      setBackupMsg(`${tt('backupRestoreDone')}: ${res.restored}`)
+      // One reload so every reader (store, alarms, themes) re-derives from
+      // the restored rows instead of showing a mixture of old and new.
+      window.setTimeout(() => window.location.reload(), 700)
+    } else {
+      setBackupMsg(`${tt('backupInvalid')}: ${res.error || ''}`)
+    }
+  }
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
@@ -405,10 +483,65 @@ export default function Settings({
           </div>
         </section>
 
+        <section className="settings-section" data-testid="backup-section">
+          <h3>{tt('backupTitle')}</h3>
+          <div className="row-btns">
+            <button className="btn ghost small" data-testid="backup-export" onClick={handleBackupExport}>
+              <Download width={14} height={14} /> {tt('backupExport')}
+            </button>
+            <button className="btn ghost small" data-testid="backup-import" onClick={() => backupFileRef.current?.click()}>
+              <Refresh width={14} height={14} /> {tt('backupImport')}
+            </button>
+          </div>
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            data-testid="backup-file"
+            onChange={(e) => void handleBackupFile(e.target)}
+          />
+          {backupMsg && (
+            <p className="muted small" data-testid="backup-msg">
+              {backupMsg}
+            </p>
+          )}
+
+          {/* The summary is the whole point of T044: the user sees exactly
+              what the file contains before anything is overwritten. */}
+          {pendingRestore && (
+            <div className="backup-confirm" data-testid="backup-summary">
+              <p>
+                <b>{tt('backupConfirmTitle')}</b>
+              </p>
+              <p className="muted small">{tt('backupConfirmBody')}</p>
+              <p className="muted small" data-testid="backup-summary-text">
+                {tt('backupVersion')} {pendingRestore.summary.version} · {tt('backupSummary')} {pendingRestore.summary.rows}
+                {' · '}{pendingRestore.summary.prefs}
+              </p>
+              <ul className="backup-tables" data-testid="backup-tables">
+                {pendingRestore.summary.tables.map((tb) => (
+                  <li key={tb.key}>
+                    <span>{tb.key}</span>
+                    <b>{tb.count}</b>
+                  </li>
+                ))}
+              </ul>
+              <div className="row-btns">
+                <button className="btn primary small" data-testid="backup-confirm" onClick={() => void confirmRestore()}>
+                  {tt('backupImport')}
+                </button>
+                <button className="btn ghost small" data-testid="backup-cancel" onClick={() => setPendingRestore(null)}>
+                  {tt('cancel')}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
         <section className="settings-section">
           <h3>{tt('about')}</h3>
           <p className="muted small">
-            Anjam v1.1.0 — Electron (Windows) + Capacitor (Android) + Supabase
+            Anjam v1.4.0 — Electron (Windows) + Capacitor (Android) + Supabase
             <br />
             github.com/amirlwf/anjam
           </p>

@@ -2694,3 +2694,34 @@ html[data-fs='lg'] body { font-size: 16px; }
   font-size: 13px;
 }
 .tt-slot .chip-x { position: static; align-self: flex-start; }
+
+
+/* ---- US5: the restore confirmation ---- */
+/* The summary has to read as a warning, not as a form: the user is about
+ * to overwrite the whole device. */
+.backup-confirm {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 14px);
+  background: var(--surface2);
+}
+.backup-confirm p { margin: 0 0 6px; }
+.backup-tables {
+  list-style: none;
+  margin: 8px 0 10px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 4px 10px;
+}
+.backup-tables li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px dotted var(--border);
+  padding-bottom: 3px;
+}
+.backup-tables li b { color: var(--text); }

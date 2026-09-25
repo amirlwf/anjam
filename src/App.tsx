@@ -22,6 +22,9 @@ import Settings from './components/Settings'
 import { Plus, X } from './components/Icons'
 import Advisory from './components/Advisory'
 import NewsAlert from './components/NewsAlert'
+import { idbGetAll } from './lib/idb'
+import { TABLES, buildBackup, validateBackup } from './lib/backup'
+import { restoreBackup } from './lib/backupIo'
 import logo from './assets/logo.png'
 
 type Phase = 'boot' | 'setup' | 'auth' | 'app'
@@ -180,6 +183,46 @@ export default function App() {
     setPhase('auth')
   }
 
+  /* v1.4.0 test seam — see the comment in the JSX below. */
+  useEffect(() => {
+    const w = window as unknown as {
+      __anjamBackup?: {
+        counts: () => Promise<Record<string, number>>
+        build: () => Promise<unknown>
+        restore: (o: unknown) => Promise<{ ok: boolean; restored: number; rolledBack: boolean; error?: string }>
+        prefs: () => Record<string, string>
+      }
+    }
+    w.__anjamBackup = {
+      counts: async () => {
+        const out: Record<string, number> = {}
+        for (const { key, store: st } of TABLES) out[key] = (await idbGetAll(st)).length
+        return out
+      },
+      build: async () => {
+        const data = {} as Record<string, unknown[]>
+        for (const { key, store: st } of TABLES) data[key] = await idbGetAll(st)
+        return buildBackup(data as never, new Date().toISOString())
+      },
+      restore: async (o: unknown) => {
+        const v = validateBackup(o)
+        if (!v.ok || !v.file) return { ok: false, restored: 0, rolledBack: false, error: v.errors.join(', ') }
+        return restoreBackup(v.file)
+      },
+      prefs: () => {
+        const out: Record<string, string> = {}
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i)
+          if (k && k.startsWith('anjam.')) out[k] = localStorage.getItem(k) || ''
+        }
+        return out
+      },
+    }
+    return () => {
+      delete w.__anjamBackup
+    }
+  }, [])
+
   if (phase === 'boot') {
     return (
       <div className="boot">
@@ -298,6 +341,9 @@ export default function App() {
           scheduler keeps running even while another modal is open. */}
       <Advisory lang={lang} />
       <NewsAlert lang={lang} />
+      {/* v1.4.0 test seam: the backup round-trip has to be provable without
+          downloading a file, so the harness can build, corrupt and restore
+          the same envelope in-page. Nothing here talks to a server. */}
 
       {/* US1/FR-01: composer for views that have no inline one (FAB). */}
       {composerOpen && (
