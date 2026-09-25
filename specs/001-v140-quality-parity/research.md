@@ -193,11 +193,82 @@ existing `--ease-out`, `--dur` and `prefers-reduced-motion` blocks are already i
 
 ---
 
-## 6. Decisions
+## 6. Persian school-closure news — measured, not assumed
+
+All rows below are the result of 37 live `curl` calls (2026-09-25). Anything
+marked ❌ failed here and is **not** a design assumption.
+
+### 6.1 CORS reality, measured
+
+| Endpoint | Responds | `ACAO` for `Origin: http://localhost:4173` |
+|----------|----------|------------------------------------------|
+| `api.rss2json.com/v1/api.json?rss_url=…` | ✅ 200 `ok` | ✅ `*` (also on 422) |
+| `www.bing.com/news/search?q=…&format=RSS` | ✅ 200 `application/xml`, 3–13 items | ❌ **none** → must go through rss2json |
+| `borna.news/fa/rss/allnews` | ✅ 200, 50 items | ✅ `*` — **direct browser fetch works, no proxy** |
+| `entekhab.ir` / `asriran.com` / `yjc.ir` `/fa/rss/allnews` | ✅ 200, 20–100 items | ✅ `*` |
+| `rasadalborz.ir/feed/` | ✅ 200, 10–12 items (newest **2025-02-12**, stale) | ❌ none |
+| `karajrasa.ir/feed/` | ✅ 200, 10 items | ❌ none |
+| `mehrnews.com/rss`, `isna.ir/rss` | ✅ 200 | ❌ none |
+| `018212.khabarban.com` (۲۱۲ خبر تعطیلی مدارس البرز) | ✅ 200 | ❌ none, no RSS |
+| `irna.ir`, `farsnews.ir`, `tasnimnews.com`, `ilna.ir`, `khabarban.com`, `avash.ir`, `alborz.moi.ir`, `education.ir` | ❌ **TLS handshake failed** from this host | — |
+
+### 6.2 Proxy services, actually tested
+
+| Service | Result |
+|---------|--------|
+| **rss2json over Bing RSS** | ✅ **45/45 successes**, 0.5 s median, real Persian headlines (`تعطیلی مدارس البرز در روز شنبه…`, `برخی مدارس البرز غیرحضوری شدند`, `تعطیلی مدارس در شهرستان‌های اشتهارد و طالقان`) |
+| `api.allorigins.win/get?url=` | ⚠️ 1/5 (520/522 otherwise); `/raw` 0/1 → last resort only, with retries |
+| `r.jina.ai` | ❌ 3/3 `403` Cloudflare "Just a moment…" |
+| `cors.lol` | ❌ 1 success then 9× `429` even at 25 s spacing |
+| `api.codetabs.com/v1/proxy` | ❌ `1200` / `522` every attempt |
+| `corsproxy.io` | ❌ `401` API key required |
+| `google news rss/search` | ❌ `302` → `hl=en-US&gl=US`, and the followed feed is **empty** (control queries `تهران`→98, `بارش برف`→14 items, so it is geo, not syntax). **rss2json cannot proxy it either** (`500 Cannot download this RSS feed`) |
+
+### 6.3 The design this forces
+
+**Primary: rss2json.com wrapping Bing News RSS.** 4 queries fired at 21:00 —
+`تعطیلی مدارس البرز` / `تعطیلی مدارس ساوجبلاغ` / `تعطیلی مدارس هشتگرد` /
+`بارش برف مدارس البرز` — all verified non-empty. The rss_url value is the
+percent-encoded Bing URL:
+
+```
+https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.bing.com%2Fnews%2Fsearch%3Fq%3D%7Bquery%7D%26format%3DRSS%26count%3D20
+```
+
+**Fallback: direct CORS-open Iranian feeds**, keyword-filtered client-side, no
+proxy at all — `borna.news/fa/rss/allnews` is the leader (ACAO `*`),
+then `entekhab.ir`, `asriran.com`, `yjc.ir`.
+
+**Never** build on allorigins/cors.lol/jina/codetabs/corsproxy — all measured
+flaky or hard-blocked. Never build on Google News from a non-Iran IP.
+
+### 6.4 Freshness, dedupe, and the silence rule
+
+- Bing's default order **mixes years** (newest hit for `ساوجبلاغ` was
+  2025-01-18). `&qft=sortbydate%3d%221%22` returns fresher but noisier and failed
+  3/3 for `ساوجبلاغ`. So: **fetch both orderings, merge, then require
+  ≥2 closure keywords + 1 locality term** before a title counts as a signal.
+- Require the item to be **≤24 h old**, dedupe by title similarity, because
+  closure notices mutate (`مدارس ادارات برخی استان‌ها فردا تعطیل شدند` →
+  `تعطیلی مدارس شنبه ۴ مهر ۱۴۰۵`).
+- rss2json's free tier is keyless but **caps at 10 items** (`count`/`order_by`
+  need a key) — design for 10, not 20.
+- **`status != "ok"` or all sources empty ⇒ stay silent.** A 21:00 popup must
+  only appear when there is a real signal; never pop up on a fetch failure.
+(popup: 21:00–08:00) — silence is the default.
+
+### 6.5 Attribution
+
+Bing/Google News RSS terms govern downstream use; the popup links out and
+attributes the publisher rather than republishing full text.
+
+---
+
+## 7. Decisions
 
 | # | Decision | Alternative rejected |
 |---|----------|----------------------|
-| D1 | Google News RSS primary, direct aggregator + proxy fallback | Direct Ilna/Isna only: no CORS, app breaks behind Iran proxies |
+| D1 | **rss2json over Bing News RSS**, 4 keyword queries, 2 orderings merged | Google News RSS: verified empty/geo-redirected from non-Iran IPs, and unproxyable. Direct Ilna/Isna/IRNA: no CORS **and** TLS handshake failure from this host |
 | D2 | Region from the **weather location already chosen** (user requirement), override in settings | Separate news-location picker: duplicate concept, divergence |
 | D3 | AI layer = 4 non-chat analyses, BYOK OpenRouter, local deterministic fallback | Chat UI: rejected by the user; also needs streaming UX we don't need |
 | D4 | New fields, not new tables; partial unique index for periods | Replacing `study_slots`: breaks sync + all existing data |

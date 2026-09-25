@@ -1,16 +1,19 @@
 {
   "name": "anjam",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && node scripts/i18n-parity.mjs && node --experimental-strip-types scripts/unit.mjs && node --experimental-strip-types scripts/timezone-check.mjs && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/patch-capacitor-mirrors.js",
     "desktop": "npm run build && electron .",
-    "release:win": "npm run build && electron-builder --win"
+    "release:win": "npm run build && electron-builder --win",
+    "test": "node scripts/i18n-parity.mjs && node --experimental-strip-types scripts/unit.mjs && node --experimental-strip-types scripts/timezone-check.mjs",
+    "qa": "node scripts/cdp-ux-check.mjs",
+    "probe": "node scripts/probe-bugs.mjs"
   },
   "dependencies": {
     "@capacitor/local-notifications": "^6.1.3",

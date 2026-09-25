@@ -92,11 +92,16 @@ async function installTracers(send) {
       window.addEventListener('unhandledrejection', e => window.__trace.push({ kind: 'rej', msg: String(e.reason) }));
       document.addEventListener('submit', e => window.__trace.push({ kind: 'submit', cls: String(e.target.className || ''), t: Date.now() }), true);
       const st = window.setTimeout;
+      // Record at SCHEDULE time, not at fire time: an overflow timeout that
+      // fires 1 ms after being created must still be caught, and a correct
+      // 24-day chunk that fires on time must not look "late".
+      window.__scheduled = [];
       window.setTimeout = function (fn, delay, ...a) {
-        if (typeof fn === 'function' && delay > 3600000) {
-          const at = Date.now() + delay;
+        if (typeof fn === 'function' && typeof delay === 'number' && delay > 3600000) {
+          const rec = { delay: delay, at: Date.now(), drift: null };
+          window.__scheduled.push(rec);
           const orig = fn;
-          fn = function (...x) { (window.__longTimeouts = window.__longTimeouts || []).push({ delay, drift: Date.now() - at }); return orig.apply(this, x) };
+          fn = function (...x) { rec.drift = Date.now() - rec.at - delay; return orig.apply(this, x) };
         }
         return st.call(window, fn, delay, ...a);
       };
@@ -162,28 +167,6 @@ async function main() {
   )
   if (docScrollable && !viewScrollable) console.log('PROBE_B_HINT the document scrolled instead of .view (grid/flex min-height issue)')
 
-  /* ------------------------------------------------------------------ *
-   * BUG A — setTimeout 32-bit overflow: delays > 2^31-1 ms (24.8 days)
-   * fire immediately in Chromium. Any alarm scheduled that far out with
-   * the timeout path rings on the spot.
-   * ------------------------------------------------------------------ */
-  const t = await evalJs(`(async () => {
-    let fired = 0
-    const t0 = Date.now()
-    setTimeout(() => { fired = Date.now() - t0 }, 88 * 86400000)   // 88 days out
-    setTimeout(() => { fired = fired || -1 }, 700)
-    await new Promise(r => setTimeout(r, 900))
-    const maxDelay = 2147483647
-    let probe = 'not-run'
-    try { probe = typeof setTimeout(() => {}, maxDelay + 1000) } catch (e) { probe = 'threw' }
-    return { firedAfterMs: fired, setTimeoutReturns: probe }
-  })()`)
-  console.log('PROBE_A_TIMEOUT ' + JSON.stringify(t))
-  console.log(
-    t.firedAfterMs >= 0 && t.firedAfterMs < 5000
-      ? 'PROBE_A_VERDICT RED — a setTimeout 88 days out fired after ' + t.firedAfterMs + ' ms (32-bit overflow)'
-      : 'PROBE_A_VERDICT green — long delay did not fire early'
-  )
 
   // Real path: schedule an important date ~110 days out with a 10-day lead
   // while the countdown is busy (timerFree false) -> alarms.ts setTimeout path.
@@ -405,6 +388,39 @@ async function main() {
     return out
   })()`)
   console.log('PROBE_A3_BADROWS ' + JSON.stringify(bad))
+
+  /* ------------------------------------------------------------------ *
+   * BUG A — setTimeout 32-bit overflow: delays > 2^31-1 ms (24.8 days)
+   * fire immediately in Chromium. Any alarm scheduled that far out with
+   * the timeout path rings on the spot.
+   * ------------------------------------------------------------------ */
+  // What matters is not what the PLATFORM does with a 88-day delay (it fires
+  // instantly, by spec) but what the APP asks for. So: assert the app never
+  // hands window.setTimeout a delay above the 32-bit cap. The long-timeout
+  // tracer already recorded every >1h delay at schedule time.
+  const t = await evalJs(`(async () => {
+    const MAX = 2147483647
+    const raw = (window.__scheduled || []).map(s => s.delay)
+    const over = raw.filter(d => d > MAX)
+    return {
+      scheduled: raw.length,
+      maxDelayAsked: raw.length ? Math.max(...raw) : 0,
+      overCap: over.length,
+      cap: MAX
+    }
+  })()`)
+  console.log('PROBE_A_TIMEOUT ' + JSON.stringify(t))
+  // Also require the assertion to have actually been exercised: an app that
+  // scheduled zero long timeouts would otherwise pass this for free.
+  const exercised = t.scheduled > 0
+  console.log(
+    t.overCap === 0 && exercised
+      ? 'PROBE_A_VERDICT GREEN — app asked max ' + t.maxDelayAsked + ' ms, under the ' + t.cap + ' cap (' + t.scheduled + ' long timeouts)'
+      : t.overCap === 0
+        ? 'PROBE_A_VERDICT RED — no long timeout was scheduled, so this check proved nothing (run the far-date case first)'
+        : 'PROBE_A_VERDICT RED — the app passed a ' + t.maxDelayAsked + ' ms delay to setTimeout (32-bit overflow, fires instantly)'
+  )
+
   const farTimer = (bad.planned || []).filter(p => p.kind === 'timer' && (p.days === null || p.days >= 1))
   const a3ok = bad.beeped === false
     && (bad.desired || []).every(d => d.finite === true)
