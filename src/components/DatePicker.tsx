@@ -115,22 +115,24 @@ export default function DatePicker({
         <div className="cal-pop" role="dialog">
           <div className="cal-head">
             <div className="cal-nav">
-              <button className="icon-btn tiny cal-prev" aria-label="prev" onClick={() => go(-1)}>
+              <button type="button" className="icon-btn tiny cal-prev" aria-label="prev" onClick={() => go(-1)}>
                 <ChevronLeft width={15} height={15} />
               </button>
-              <button className="icon-btn tiny cal-next" aria-label="next" onClick={() => go(1)}>
+              <button type="button" className="icon-btn tiny cal-next" aria-label="next" onClick={() => go(1)}>
                 <ChevronLeft width={15} height={15} />
               </button>
             </div>
             <div className="cal-title">{monthTitle(sys, view.y, view.m, lang)}</div>
             <div className="segmented cal-seg">
               <button
+                type="button"
                 className={`seg-btn ${sys === 'jalali' ? 'active' : ''}`}
                 onClick={() => switchSys('jalali')}
               >
                 {tt('calSolar')}
               </button>
               <button
+                type="button"
                 className={`seg-btn ${sys === 'gregorian' ? 'active' : ''}`}
                 onClick={() => switchSys('gregorian')}
               >
@@ -164,11 +166,12 @@ export default function DatePicker({
           </div>
 
           <div className="cal-foot">
-            <button className="cal-foot-btn" onClick={pickToday}>
+            <button type="button" className="cal-foot-btn" onClick={pickToday}>
               {tt('today')}
             </button>
             {value && <span className="cal-dual muted small">{dualLabel(value, sys)}</span>}
             <button
+              type="button"
               className="cal-foot-btn"
               onClick={() => {
                 onClear?.()

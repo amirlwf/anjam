@@ -115,24 +115,28 @@ function desiredAlarms(): Desired[] {
   const l = lang()
   for (const r of store.getState().dates) {
     if (r.deleted || !r.enabled || r.title.trim() === '') continue
+    // A row synced from an older build (or a hand-edited backup) can carry
+    // undefined/NaN/text in these fields. Every comparison against NaN is
+    // false, so the guard below was skipped and the arithmetic produced
+    // NaN — `setTimeout(fn, NaN)` fires on the spot, which is exactly the
+    // "reminder rang 50+ days early" report. Sanitize before using.
+    const leadDays = Number.isFinite(r.remind_days) ? Math.max(0, Math.trunc(r.remind_days)) : 10
+    const timeParts = /^(\d{1,2}):(\d{2})$/.exec(r.remind_time || '')
+    const hh = timeParts ? Math.min(23, Math.max(0, Number(timeParts[1]))) : 9
+    const mm = timeParts ? Math.min(59, Math.max(0, Number(timeParts[2]))) : 0
     const occ = rowNext(r, new Date(now))
-    const [hhRaw, mmRaw] = r.remind_time.split(':')
-    const hh = Number(hhRaw)
-    const mm = Number(mmRaw)
     const atBase = new Date(
-      occ.getFullYear(), occ.getMonth(), occ.getDate(),
-      Number.isFinite(hh) ? hh : 9,
-      Number.isFinite(mm) ? mm : 0,
-      0, 0
+      occ.getFullYear(), occ.getMonth(), occ.getDate(), hh, mm, 0, 0
     )
-    const at = atBase.getTime() - r.remind_days * 86_400_000
+    const at = atBase.getTime() - leadDays * 86_400_000
+    if (!Number.isFinite(at) || !Number.isFinite(occ.getTime())) continue
     if (at < now - MISSED_WINDOW_MS) continue // lead window already passed — next year
     const id = 'date:' + r.id
     if (muted.has(id)) continue
     const done = handled.get(id)
     if (done === at) continue
     const left = daysUntil(occ, new Date(now))
-    const title = r.remind_days > 0
+    const title = leadDays > 0
       ? l === 'fa'
         ? `${r.title} — ${left} روز مانده`
         : `${r.title} — ${left} days left`
@@ -156,6 +160,30 @@ function cancelPlanned(id: string, p: Planned): void {
   timeouts.delete(id)
   planned.delete(id)
 }
+
+/** Re-arming timeout: setTimeout's 32-bit delay cap (2^31-1 ms ≈ 24.8 days)
+ *  would fire instantly or never on engines that don't clamp it, and an
+ *  important date can sit 90+ days out. Re-arm in ≤24-day slices instead. */
+const MAX_TIMEOUT_MS = 2_147_000_000
+function armTimeout(id: string, at: number, fire: () => void): void {
+  const schedule = () => {
+    const left = at - Date.now()
+    const to = window.setTimeout(() => {
+      timeouts.delete(id)
+      if (at - Date.now() > 1_000) schedule() // far slice elapsed — re-arm
+      else fire()
+    }, Math.max(0, Math.min(MAX_TIMEOUT_MS, left)))
+    timeouts.set(id, to)
+  }
+  schedule()
+}
+
+/** The countdown UI is meant for "today", not for months. Without this limit
+ *  an important date 87 days out claimed the engine and rendered as a
+ *  "2102:19:35" pill (probe evidence), blocking the user's own stopwatch for
+ *  months. Anything beyond 24h goes through the chunked timeout instead, which
+ *  still rings + notifies at the right minute. */
+const COUNTDOWN_LIMIT_MS = 24 * 60 * 60 * 1000
 
 async function scheduleOne(d: Desired): Promise<void> {
   const now = Date.now()
@@ -182,6 +210,13 @@ async function scheduleOne(d: Desired): Promise<void> {
   }
 
   // Desktop / web
+  // Belt-and-braces: nothing with a non-finite or negative delay may reach
+  // setTimeout/startTimer. Chromium treats NaN/negative as 0 → instant ring.
+  const delay = d.at - now
+  if (!Number.isFinite(d.at) || !Number.isFinite(delay)) {
+    console.warn('[anjam] dropped non-finite alarm', d.id)
+    return
+  }
   if (d.at <= now) {
     handled.set(d.id, d.at)
     planned.set(d.id, { kind: 'missed', at: d.at })
@@ -191,17 +226,15 @@ async function scheduleOne(d: Desired): Promise<void> {
   }
   const s = getTimer()
   const timerFree = !s.running && !s.ringing && s.leftMs <= 0
-  if (timerFree) {
-    await startTimer(d.at - now, lbl, { owner: d.id })
+  if (timerFree && delay <= COUNTDOWN_LIMIT_MS) {
+    await startTimer(delay, lbl, { owner: d.id })
     planned.set(d.id, { kind: 'timer', at: d.at })
     return
   }
-  const to = window.setTimeout(() => {
-    timeouts.delete(d.id)
+  armTimeout(d.id, d.at, () => {
     ringSoft()
     notify(lbl.title, lbl.body)
-  }, d.at - now)
-  timeouts.set(d.id, to)
+  })
   planned.set(d.id, { kind: 'timeout', at: d.at })
 }
 
@@ -323,4 +356,5 @@ export async function testAlarmRing(o: {
   isMuted,
   toggleMute,
   planned: () => [...planned.entries()],
+  desired: desiredAlarms,
 }

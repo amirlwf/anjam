@@ -65,22 +65,31 @@ export default function Dates({ lang }: { lang: Lang }) {
     e.preventDefault()
     const name = title.trim()
     if (!name) return
-    const [y, m, d] = iso.split('-').map(Number)
-    if (!y || !m || !d) return
-    let month = m
-    let day = d
+    // `iso` is ALWAYS a Gregorian YYYY-MM-DD (that is what DatePicker emits
+    // and what localDate() returns). Rows are stored per calendar system, so
+    // the parts must be converted when the display system is Jalali/Hijri —
+    // previously the raw 2027-01-01 became jalali month=1, day=1, i.e. Farvardin.
+    const [gy, gm, gd] = iso.split('-').map(Number)
+    if (!gy || !gm || !gd) return
+    let system: 'jalali' | 'gregorian' | 'hijri' = calSys
+    let month = gm
+    let day = gd
     if (calSys === 'jalali') {
-      const j = toJalaali(y, m, d)
+      const j = toJalaali(gy, gm, gd)
+      system = 'jalali'
       month = j.jm
       day = j.jd
     }
+    if (!Number.isFinite(month) || !Number.isFinite(day) || month < 1 || month > 12) return
+    if (day < 1 || day > 31) return
+    const leadDays = LEADS.includes(lead) ? lead : 10
     void addImportantDate({
       title: name,
-      system: calSys,
+      system,
       month,
       day,
-      remind_days: lead,
-      remind_time: time,
+      remind_days: leadDays,
+      remind_time: time || '09:00',
     })
     reset()
   }

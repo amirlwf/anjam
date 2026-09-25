@@ -164,7 +164,11 @@ function persist(): void {
 }
 
 function emit(): void {
-  subs.forEach((fn) => fn(state))
+  // Publish a NEW object every time: React's useState bails out when the
+  // reference is unchanged, so emitting `state` as-is left the header's
+  // countdown pill frozen between start and ring (probe: 16 emits, 1 render).
+  const snapshot: TimerState = { ...state }
+  subs.forEach((fn) => fn(snapshot))
 }
 
 export function onTimer(fn: (s: TimerState) => void): () => void {
@@ -500,4 +504,6 @@ window.addEventListener('focus', () => {
   stopBeep,
   get: getTimer,
   cfg: getPomodoroCfg,
+  on: (fn: (s: TimerState) => void) => onTimer(fn),
+  subCount: () => subs.size,
 }

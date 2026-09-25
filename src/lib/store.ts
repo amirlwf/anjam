@@ -697,6 +697,7 @@ export function sortTasks(arr: TaskRow[]): TaskRow[] {
   update: updateImportantDate,
   destroy: destroyImportantDate,
   list: liveDates,
+  state: () => state,
 }
 
 export function exportJson(): string {
