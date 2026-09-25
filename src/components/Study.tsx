@@ -26,6 +26,9 @@ function useStore() {
 }
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6]
+/** Iranian school week: شنبه تا چهارشنبه. */
+const SCHOOL = [0, 1, 2, 3, 4]
+const REST = [5, 6]
 
 function fmtDur(mins: number, fa: boolean): string {
   const h = Math.floor(mins / 60)
@@ -39,6 +42,9 @@ export default function Study({ lang }: { lang: Lang }) {
   useStore() // subscribe: live* readers above need re-renders
   const fa = lang === 'fa'
   const [tab, setTab] = useState<'tt' | 'hw' | 'log'>('tt')
+  // default a new class to a school day (never Thu/Fri)
+  const startWd = weekIdx()
+  const [fDayInit] = useState(startWd <= 4 ? startWd : 0)
 
   const subjects = liveSubjects()
   const slots = liveSlots()
@@ -58,7 +64,7 @@ export default function Study({ lang }: { lang: Lang }) {
 
   /* ---------- timetable form ---------- */
   const [fSubject, setFSubject] = useState('')
-  const [fDay, setFDay] = useState(String(weekIdx()))
+  const [fDay, setFDay] = useState(String(fDayInit))
   const [fStart, setFStart] = useState('08:00')
   const [fEnd, setFEnd] = useState('09:30')
   const [fRoom, setFRoom] = useState('')
@@ -131,6 +137,33 @@ export default function Study({ lang }: { lang: Lang }) {
     </div>
   )
 
+  const renderDay = (d: number) => {
+    const daySlots = slots
+      .filter((s) => s.weekday === d)
+      .sort((a, b) => (a.start < b.start ? -1 : 1))
+    return (
+      <div key={d} className={`tt-day ${d === weekIdx() ? 'is-today' : ''} ${d >= 5 ? 'is-rest' : ''}`}>
+        <div className="tt-day-h">{tt(`wd${d}`)}</div>
+        {daySlots.length === 0 && <div className="tt-none">—</div>}
+        {daySlots.map((s) => {
+          const subj = s.subject_id ? subjById.get(s.subject_id) : null
+          return (
+            <div key={s.id} className="tt-slot" data-testid="slot-row" style={{ borderColor: subj?.color }}>
+              <b>{subj ? subj.name : '•'}</b>
+              <span className="muted small">
+                {toFaDigits(s.start)} – {toFaDigits(s.end)}
+                {s.room ? ` · ${s.room}` : ''}
+              </span>
+              <button className="chip-x" aria-label={tt('delete')} onClick={() => void destroyStudySlot(s.id)}>
+                <X width={11} height={11} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="study-wrap" data-testid="study-view">
       <Tabs />
@@ -198,34 +231,17 @@ export default function Study({ lang }: { lang: Lang }) {
               {tt('noSlots')}
             </p>
           ) : (
-            <div className="tt-grid">
-              {DAYS.map((d) => {
-                const daySlots = slots
-                  .filter((s) => s.weekday === d)
-                  .sort((a, b) => (a.start < b.start ? -1 : 1))
-                return (
-                  <div key={d} className={`tt-day ${d === weekIdx() ? 'is-today' : ''}`}>
-                    <div className="tt-day-h">{tt(`wd${d}`)}</div>
-                    {daySlots.length === 0 && <div className="tt-none">—</div>}
-                    {daySlots.map((s) => {
-                      const subj = s.subject_id ? subjById.get(s.subject_id) : null
-                      return (
-                        <div key={s.id} className="tt-slot" data-testid="slot-row" style={{ borderColor: subj?.color }}>
-                          <b>{subj ? subj.name : '•'}</b>
-                          <span className="muted small">
-                            {toFaDigits(s.start)} – {toFaDigits(s.end)}
-                            {s.room ? ` · ${s.room}` : ''}
-                          </span>
-                          <button className="chip-x" aria-label={tt('delete')} onClick={() => void destroyStudySlot(s.id)}>
-                            <X width={11} height={11} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
+            <>
+              <div className="tt-grid">
+                {SCHOOL.map(renderDay)}
+              </div>
+              <div className="tt-rest" data-testid="tt-rest">
+                <div className="tt-rest-h">{tt('ttRest')}</div>
+                <div className="tt-grid tt-grid-rest">
+                  {REST.map(renderDay)}
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

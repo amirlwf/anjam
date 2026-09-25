@@ -2540,3 +2540,14 @@ html[data-fs='lg'] body { font-size: 16px; }
   color: #10b981; font-weight: 700; font-size: 13.5px;
   border-radius: 10px; padding: 9px 12px; text-align: center;
 }
+
+
+/* ---- v1.3.1: school week (شنبه تا چهارشنبه) ---- */
+.tt-rest { display: flex; flex-direction: column; gap: 7px; }
+.tt-rest-h {
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.tt-grid-rest { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); }
+.tt-day.is-rest { opacity: 0.78; border-style: dashed; }
+.tt-day.is-rest:hover { opacity: 1; }
