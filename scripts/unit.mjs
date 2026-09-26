@@ -23,6 +23,11 @@ import {
 import {
   buildBackup, validateBackup, summarize, collectPrefs, isSecretKey, TABLES, BACKUP_VERSION,
 } from '../src/lib/backup.ts'
+import {
+  ANALYSES, buildPayload, localAnalysis, localDay, localTimetable,
+  localBacklog, localWeekly, orderedOpen, timeBox, parseReply, otherModel,
+  AiError, OPENROUTER_CHAT, SYSTEM_PROMPTS,
+} from '../src/lib/ai.ts'
 
 let pass = 0
 const failures = []
@@ -504,6 +509,113 @@ check('backup: summary names the big table', sum.tables.find((t) => t.key === 't
 /* a v1.3 export (version 1, no prefs) must still restore */
 const legacy = validateBackup({ app: 'anjam', version: 1, exported_at: '2026-01-01', data: goodData })
 check('backup: v1 exports still validate', legacy.ok === true, JSON.stringify(legacy.errors))
+/* ------------------------------------------------------- US7 · AI */
+const aiCtx = {
+  lang: 'fa',
+  today: '2026-09-26',
+  tasks: [
+    { title: 'گزارش', priority: 'p1', due: '2026-09-24', done: false },
+    { title: 'خرید', priority: 'p4', due: null, done: false },
+    { title: 'تماس', priority: 'p2', due: '2026-09-26', done: false },
+    { title: 'تمیزکاری', priority: 'p3', due: null, done: true },
+  ],
+  counts: { open: 3, done: 1, overdue: 1 },
+  timetable: [
+    { weekday: 0, periods: 11, subjects: ['ریاضی', 'ریاضی', 'فیزیک'] },
+    { weekday: 1, periods: 0, subjects: [] },
+    { weekday: 2, periods: 2, subjects: ['ادبیات'] },
+  ],
+}
+
+// T058 — the payload is the privacy boundary: no notes, no email, no ids.
+const payload = JSON.stringify(buildPayload('day', aiCtx, 'free/model'))
+const pl = buildPayload('day', aiCtx, 'm')
+check('ai: payload carries no notes field', !/"notes"/.test(payload), payload.slice(0, 200))
+check('ai: payload carries no email', !/@|email/i.test(payload), payload.slice(0, 200))
+check('ai: payload carries no id field', !/"id"\s*:/.test(payload), payload.slice(0, 200))
+check('ai: payload carries no supabase/token', !/supabase|access_token|refresh_token|eyJ/i.test(payload))
+check('ai: the key is never in the body', !/sk-or/.test(payload))
+eq('ai: payload carries the model', pl.model !== undefined, true)
+eq('ai: temperature is low', pl.temperature, 0.2)
+check('ai: max_tokens in 400-700', pl.max_tokens >= 400 && pl.max_tokens <= 700)
+
+// T063 — every analysis has a local implementation, in both languages.
+for (const id of ANALYSES) {
+  const r = localAnalysis(id, aiCtx)
+  check(`ai: ${id} has a local result`, r.source === 'local' && r.lines.length > 0, JSON.stringify(r.lines))
+  check(`ai: ${id} note says it was local`, /محلی|local/i.test(r.note), r.note)
+  const en = localAnalysis(id, { ...aiCtx, lang: 'en' })
+  check(`ai: ${id} english twin exists`, en.lines.length > 0, JSON.stringify(en.lines))
+  const again = localAnalysis(id, aiCtx)
+  check(`ai: ${id} is deterministic`, JSON.stringify(r.lines) === JSON.stringify(again.lines))
+}
+
+// ordering: overdue beats priority beats due date
+const order = orderedOpen(aiCtx.tasks, aiCtx.today).map((t) => t.title)
+eq('ai: overdue comes first', order[0], 'گزارش')
+eq('ai: high priority next', order[1], 'تماس')
+eq('ai: done tasks never enter the plan', order.length, 3)
+eq('ai: time box by priority', timeBox('p1'), 45)
+eq('ai: time box floor', timeBox('p4'), 10)
+
+const dayLines = localDay(aiCtx).join('\n')
+check('ai: day plan names the overdue task', dayLines.includes('گزارش'))
+check('ai: day plan carries a time box', /\d+ (دقیقه|min)/.test(dayLines), dayLines)
+const emptyDay = localDay({ ...aiCtx, tasks: [] }).join('\n')
+check('ai: an empty day says so', /هیچ|نداری|Nothing due|empty/i.test(emptyDay), emptyDay)
+
+const tt = localTimetable(aiCtx).join('\n')
+check('ai: timetable flags an overloaded day', tt.includes('شنبه') && /۱۱|11/.test(tt), tt)
+check('ai: timetable flags an empty day', /یکشنبه|Sun/.test(tt), tt)
+check('ai: timetable flags a thin day', /دوشنبه|Mon/.test(tt), tt)
+check('ai: timetable flags back-to-back subjects', /پشت‌سرهم|back-to-back/i.test(tt), tt)
+const ttOk = localTimetable({
+  ...aiCtx,
+  timetable: [
+    { weekday: 0, periods: 6, subjects: ['ریاضی', 'فیزیک', 'ادبیات'] },
+    { weekday: 1, periods: 6, subjects: ['شیمی', 'زیست'] },
+  ],
+}).join('\n')
+check('ai: a healthy timetable is called healthy', /سالم|balanced/.test(ttOk), ttOk)
+
+const bl = localBacklog(aiCtx).join('\n')
+// 2 land in "today" (one overdue, one p2), 0 are deferred, and 1 is droppable
+// — so the headline must say 2/0/1, not 3/0/0. Template-interpolated counts
+// are Latin digits, so the assertion accepts both digit sets.
+check('ai: backlog counts the buckets', /(?:[2۲]) کار امروز|(?:2) today/.test(bl), bl)
+check('ai: backlog keeps undated low-priority work out of today', /(?:[1۱]) حذف‌شدنی|(?:1) droppable/.test(bl), bl)
+check('ai: backlog gives a reason per task', bl.split('\n').filter((l) => l.startsWith('•')).length >= 1, bl)
+
+const wk = localWeekly(aiCtx).join('\n')
+check('ai: weekly states what slipped', /جا ماند|slipped/.test(wk), wk)
+check('ai: weekly proposes one change', /یک تغییر|One change/.test(wk), wk)
+
+// reply parsing must tolerate a model that ignores the JSON instruction
+eq('ai: json array reply', parseReply('["a","b"]').length, 2)
+eq('ai: json object reply', parseReply('{"lines":["x","y"]}').length, 2)
+check('ai: plain text reply survives', parseReply('خط اول\nخط دوم').length >= 1)
+check('ai: empty reply is empty', parseReply('').length === 0)
+check('ai: list markers are stripped', !parseReply('- item').join('').startsWith('-'))
+
+// 429 → a different free model, exactly one suggestion
+const models = [
+  { id: 'a/one', name: 'One' },
+  { id: 'b/two', name: 'Two' },
+  { id: 'a/three', name: 'Three' },
+]
+const nxt = otherModel('a/one', models)
+check('ai: suggests a different model', nxt !== null && nxt.id !== 'a/one', JSON.stringify(nxt))
+eq('ai: no second suggestion without a second model', otherModel('only/x', [{ id: 'only/x', name: 'Only' }]), null)
+
+eq('ai: chat endpoint is openrouter', OPENROUTER_CHAT, 'https://openrouter.ai/api/v1/chat/completions')
+check('ai: every analysis has a system prompt in both languages',
+  ANALYSES.every((id) => SYSTEM_PROMPTS[id].fa.length > 10 && SYSTEM_PROMPTS[id].en.length > 10))
+
+// the failure path must be a typed error the panel can swallow
+const err = new AiError(429, 'rate limited')
+eq('ai: error keeps its status', err.status, 429)
+check('ai: error is catchable as Error', err instanceof Error)
+
 /* ------------------------------------------------------- report */
 if (failures.length) {
   console.error(`UNIT_FAIL ${pass} passed, ${failures.length} failed`)

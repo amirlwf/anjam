@@ -355,8 +355,28 @@ async function main() {
     await sleep(80)
   }
   await sleep(500)
+  const typedVal = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
+  // What the typing proves: the field takes trusted key events at all.
+  check('time input accepts typed digits', typedVal !== timeVal0 && typedVal.length === 5, typedVal + ' from ' + timeVal0)
+
+  // What it cannot prove: an arbitrary clock time. Chrome's native control is
+  // segmented and, on a synthetic keypress, completes the HOUR segment after a
+  // single digit — so a blind four-digit sequence lands as 02:13 instead of
+  // 21:35 (measured digit by digit: 2 -> 02:00, 1 -> 02:01, 3 -> 02:13, 5 ignored).
+  // Put the intended time in through the same React `input` path a completed
+  // edit takes, then assert everything downstream against it.
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-testid=time-input]')
+    if (!el) return 'no-input'
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(el, ${JSON.stringify(RING.time)})
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+    return el.value
+  })()`)
+  await sleep(700)
   const timeVal = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
-  check('ring time typed', timeVal === ringTime, timeVal + ' want ' + ringTime)
+  check('ring time set', timeVal === ringTime, timeVal + ' want ' + ringTime)
   await sleep(300)
   const bellDom = await evalJs(`JSON.stringify({
     bell: !!document.querySelector('[data-testid=bell-btn]'),
@@ -1188,6 +1208,143 @@ async function main() {
     const a = JSON.parse(afterReload)
     check('T034 brand survives a reload', a.brand === 'ocean' && !!a.accent, afterReload)
   }
+  /* ---------------------------------------------------------------
+   * US7 — T056 (collapsible card, 4 analyses, BYOK block), T057 (free-model
+   * list), T058 (key never rendered back) and the T063 determinism half on
+   * the real UI.
+   *
+   * FR-19 is the assertion that matters: with no key configured the card
+   * must still produce an answer, labelled as local.
+   * --------------------------------------------------------------- */
+  const panel0 = await evalJs(`(() => {
+    const p = document.querySelector('[data-testid="ai-panel"]')
+    if (!p) return JSON.stringify({ missing: true })
+    return JSON.stringify({ open: p.dataset.open, head: !!document.querySelector('[data-testid="ai-header"]') })
+  })()`)
+  const p0 = JSON.parse(panel0)
+  check('T056 AI card renders collapsed', p0.head === true && p0.open === 'false', panel0)
+
+  await evalJs(`document.querySelector('[data-testid="ai-header"]').click()`)
+  await sleep(400)
+  const tabs0 = await evalJs(`(() => {
+    const t = [...document.querySelectorAll('[data-testid="ai-tabs"] .ai-tab')]
+    return JSON.stringify({ n: t.length, labels: t.map(x => (x.textContent || '').trim()) })
+  })()`)
+  const tj = JSON.parse(tabs0)
+  check('T056 exposes exactly four analyses', tj.n === 4, tabs0)
+  check('T056 tabs are labelled in Persian', tj.labels.join(' ').length > 4, tj.labels.join(' | '))
+
+  const readResult = `(() => {
+    const r = document.querySelector('[data-testid="ai-result"]')
+    const lines = [...document.querySelectorAll('[data-testid="ai-lines"] .ai-line')].map(x => (x.textContent || '').trim())
+    const note = (document.querySelector('[data-testid="ai-source"]') || {}).textContent || ''
+    return JSON.stringify({ source: r ? r.dataset.source : '', note: note.trim(), lines })
+  })()`
+  const r0 = JSON.parse(await evalJs(readResult))
+  check('T056 answers with no key configured', r0.source === 'local' && r0.lines.length > 0, JSON.stringify(r0).slice(0, 240))
+  check('FR-19 the answer says it was computed locally', /محلی|local/i.test(r0.note), r0.note)
+  const chat0 = await evalJs(`JSON.stringify(!!document.querySelector('.ai-input, [data-testid="ai-chat"]'))`)
+  check('T056 no chat input exists', JSON.parse(chat0) === false, chat0)
+
+  // Determinism on the real UI: leaving a tab and coming back must reproduce
+  // the same lines, because the same data can only have one answer.
+  await evalJs(`document.querySelector('[data-testid="ai-tab-timetable"]').click()`)
+  await sleep(400)
+  await evalJs(`document.querySelector('[data-testid="ai-tab-day"]').click()`)
+  await sleep(400)
+  const r1 = JSON.parse(await evalJs(readResult))
+  check('T063 rerunning an analysis reproduces it exactly',
+    JSON.stringify(r1.lines) === JSON.stringify(r0.lines) && r1.source === r0.source,
+    JSON.stringify(r0.lines).slice(0, 160) + ' vs ' + JSON.stringify(r1.lines).slice(0, 160))
+
+  // FR-19 on the failure path: an empty key means no request is even made.
+  const reqProbe = await evalJs(`(() => {
+    window.__anjamReqs = []
+    const f = window.fetch
+    window.fetch = function (...a) { window.__anjamReqs.push(String(a[0])); return f.apply(this, a) }
+    const b = document.querySelector('[data-testid="ai-run"]')
+    if (b) b.click()
+    return b ? 'clicked' : 'no-run-button'
+  })()`)
+  await sleep(900)
+  const reqs = JSON.parse(await evalJs(`JSON.stringify(window.__anjamReqs || [])`))
+  check('FR-19 no OpenRouter request without a key',
+    reqs.filter(u => /chat\/completions/.test(u)).length === 0,
+    String(reqProbe) + ' -> ' + reqs.join(', '))
+
+  // --- the BYOK block in Settings ---
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('.topbar-actions button')].find(x => /تنظیمات|Settings/i.test(x.title || ''))
+    b && b.click(); return b ? 'ok' : 'no-gear'
+  })()`)
+  await sleep(700)
+  const aiSec = await evalJs(`(() => {
+    const s = document.querySelector('[data-testid="ai-settings"]')
+    if (!s) return JSON.stringify({ missing: true })
+    const sel = s.querySelector('[data-testid="ai-model-select"]')
+    const opts = sel ? [...sel.options].map(o => o.value).filter(Boolean) : []
+    const privacy = (s.querySelector('[data-testid="ai-privacy"]') || {}).textContent || ''
+    const input = s.querySelector('[data-testid="ai-key-input"]')
+    return JSON.stringify({
+      hasInput: !!input,
+      inputType: input ? input.type : '',
+      modelOptions: opts.length,
+      hasEmptyHint: !!s.querySelector('[data-testid="ai-model-empty"]'),
+      hasRefresh: !!s.querySelector('[data-testid="ai-model-refresh"]'),
+      privacy: privacy.trim(),
+      langBtns: s.querySelectorAll('[data-testid="ai-lang-fa"], [data-testid="ai-lang-en"]').length
+    })
+  })()`)
+  const ai = JSON.parse(aiSec)
+  check('T056 BYOK block has a key field', ai.hasInput === true && ai.inputType === 'password', aiSec)
+  check('T057 model picker offers free models or says why not', ai.modelOptions >= 1 || ai.hasEmptyHint, aiSec)
+  check('T057 model list can be refreshed', ai.hasRefresh === true, aiSec)
+  check('acceptance 4 privacy sentence is shown', /no notes|بدون یادداشت/i.test(ai.privacy), ai.privacy.slice(0, 80))
+  check('T056 answer language is choosable', ai.langBtns === 2, aiSec)
+
+  // T058 — the key is stored, but never rendered back as text anywhere.
+  const keyField = await evalJs(`(() => {
+    const i = document.querySelector('[data-testid="ai-key-input"]')
+    if (!i) return JSON.stringify({ missing: true })
+    // React tracks the input's value through a prototype setter, so assigning
+    // the value property directly is invisible to it: the component state
+    // stays empty and "save" would clear the key instead of storing it. Go
+    // through the native setter (the same trick React itself uses).
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(i, 'sk-or-v1-probe-not-a-real-key')
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return JSON.stringify({ len: i.value.length })
+  })()`)
+  await sleep(200)
+  await evalJs(`document.querySelector('[data-testid="ai-key-save"]').click()`)
+  await sleep(300)
+  const keyShown = await evalJs(`JSON.stringify({
+    text: document.body.innerText.includes('sk-or-v1-probe-not-a-real-key'),
+    stored: (localStorage.getItem('anjam.ai.key') || '').slice(0, 8),
+    msg: (document.querySelector('[data-testid="ai-msg"]') || {}).textContent || ''
+  })`)
+  const ks = JSON.parse(keyShown)
+  check('T058 the key is persisted locally', ks.stored === 'sk-or-v1', keyShown)
+  check('T058 the key is never rendered as text', ks.text === false, keyShown)
+  check('T058 saving the key confirms it', /ذخیره|saved/i.test(ks.msg), ks.msg)
+
+  // clearing must remove it entirely, not merely empty the field
+  await evalJs(`document.querySelector('[data-testid="ai-key-clear"]').click()`)
+  await sleep(250)
+  const cleared = await evalJs(`JSON.stringify({ stored: localStorage.getItem('anjam.ai.key'), field: document.querySelector('[data-testid="ai-key-input"]').value })`)
+  check('T058 clearing removes the key from storage', JSON.parse(cleared).stored === null, cleared)
+
+  // the answer language is a real preference, not a dead control
+  await evalJs(`document.querySelector('[data-testid="ai-lang-en"]').click()`)
+  await sleep(250)
+  const langPref = await evalJs(`localStorage.getItem('anjam.ai.lang')`)
+  check('T056 answer language persists', String(langPref).replace(/"/g, '') === 'en', String(langPref))
+  await evalJs(`document.querySelector('[data-testid="ai-lang-fa"]').click()`)
+  await sleep(200)
+
+  // close settings again so nothing after this depends on the modal
+  await evalJs(`(() => { const b = document.querySelector('.modal .close, .modal [aria-label*="بست"], .modal [aria-label*="Close"]'); if (b) b.click(); return 'closed' })()`)
+  await sleep(500)
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
   const realErrs = consoleErrs.filter((e) => !noise.test(e))

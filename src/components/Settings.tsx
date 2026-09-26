@@ -15,6 +15,7 @@ import { getSections, setSection } from '../lib/sections'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
 import { getCalPref, setCalPref, type CalSys } from '../lib/calendar'
+import { cachedModels, freeModels, type AiModel } from '../lib/ai'
 import { Capacitor } from '@capacitor/core'
 import {
   ACCENTS,
@@ -59,6 +60,13 @@ export default function Settings({
   const [sync, setSync] = useState<SyncStatus>({ state: 'disabled', lastSyncAt: null, pending: 0, error: null })
   const [cal, setCal] = useState<CalSys>(getCalPref())
   const [accent, setAccent] = useState<string>(() => getAccent())
+  // --- US7 · BYOK: the key lives in this device's localStorage and is
+  //     read here only to pre-fill the field; it is never rendered back.
+  const [aiKey, setAiKey] = useState(() => prefs.getAiKey())
+  const [aiModel, setAiModel] = useState(() => prefs.getAiModel())
+  const [aiLang, setAiLangPref] = useState<'fa' | 'en'>(() => prefs.getAiLang())
+  const [aiModels, setAiModels] = useState<AiModel[]>(() => cachedModels())
+  const [aiMsg, setAiMsg] = useState('')
   const [motion, setMotion] = useState<MotionPref>(() => getMotion())
   const [secs, setSecs] = useState(getSections())
   function toggleSection(k: SectionKey, on: boolean) {
@@ -93,6 +101,14 @@ export default function Settings({
     window.addEventListener('focus', load)
     return () => window.removeEventListener('focus', load)
   }, [nativeAlarms])
+
+  // US7 — the free-model list is cached for 24 h (FR: the settings screen
+  // must not block on the network), so this only fetches when cold.
+  useEffect(() => {
+    if (cachedModels().length > 0) return
+    void loadAiModels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function handleRingTest() {
     void testAlarmRing({
@@ -255,6 +271,44 @@ export default function Settings({
       setBackupMsg(`${tt('backupInvalid')}: ${res.error || ''}`)
     }
   }
+
+  // --- US7 · BYOK -------------------------------------------------
+  // The key never leaves this device except in the Authorization header of
+  // the OpenRouter call the panel makes; it is not rendered, not logged and
+  // not synced (its pref key is device-local).
+  function saveAiKey() {
+    const v = aiKey.trim()
+    prefs.setAiKey(v)
+    setAiMsg(v ? tt('aiKeySaved') : tt('aiKeyCleared'))
+  }
+  function clearAiKey() {
+    setAiKey('')
+    prefs.setAiKey('')
+    setAiMsg(tt('aiKeyCleared'))
+  }
+  function saveAiModel(id: string) {
+    setAiModel(id)
+    prefs.setAiModel(id)
+    setAiMsg(tt('aiModelSaved'))
+  }
+  function saveAiLangPref(l: 'fa' | 'en') {
+    setAiLangPref(l)
+    prefs.setAiLang(l)
+  }
+  async function loadAiModels(force = false) {
+    try {
+      const list = await freeModels(force)
+      setAiModels(list)
+      // A model must be chosen before the AI path can run at all; default to
+      // the first free one so the panel works on first visit.
+      if (list.length > 0 && !list.some((m) => m.id === prefs.getAiModel())) {
+        saveAiModel(list[0].id)
+      }
+    } catch {
+      setAiModels(cachedModels())
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
@@ -600,6 +654,93 @@ export default function Settings({
             </div>
           )}
         </section>
+        {/* US7 — BYOK: personal OpenRouter key + the live free-model list.
+            The sentence under it is required by the spec (acceptance 4). */}
+        <section className="settings-section" data-testid="ai-settings">
+          <h3>{tt('aiTitle')}</h3>
+          <label className="muted small" htmlFor="ai-key">
+            {tt('aiKey')}
+          </label>
+          <div className="ai-key-row">
+            <input
+              id="ai-key"
+              className="ai-key-input"
+              type="password"
+              dir="ltr"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="sk-or-…"
+              value={aiKey}
+              onChange={(e) => setAiKey(e.target.value)}
+              data-testid="ai-key-input"
+            />
+            <button className="btn primary small" data-testid="ai-key-save" onClick={saveAiKey}>
+              {tt('save')}
+            </button>
+            <button className="btn danger small" data-testid="ai-key-clear" onClick={clearAiKey}>
+              {t(lang, 'delete')}
+            </button>
+          </div>
+          <p className="muted small">{tt('aiKeyHint')}</p>
+
+          <h3 style={{ marginTop: 14 }}>{tt('aiModel')}</h3>
+          <div className="ai-key-row">
+            <select
+              className="ai-model-select"
+              data-testid="ai-model-select"
+              value={aiModel}
+              onChange={(e) => saveAiModel(e.target.value)}
+            >
+              <option value="">{tt('aiModelNone')}</option>
+              {aiModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn ghost small"
+              data-testid="ai-model-refresh"
+              onClick={() => void loadAiModels(true)}
+            >
+              <Refresh width={14} height={14} /> {tt('aiRefreshModels')}
+            </button>
+          </div>
+          {aiModels.length === 0 && (
+            <p className="muted small" data-testid="ai-model-empty">
+              {tt('aiModelEmpty')}
+            </p>
+          )}
+
+          <h3 style={{ marginTop: 14 }}>{tt('aiLang')}</h3>
+          <div className="segmented">
+            <button
+              className={`seg-btn ${aiLang === 'fa' ? 'active' : ''}`}
+              data-testid="ai-lang-fa"
+              onClick={() => saveAiLangPref('fa')}
+            >
+              فارسی
+            </button>
+            <button
+              className={`seg-btn ${aiLang === 'en' ? 'active' : ''}`}
+              data-testid="ai-lang-en"
+              onClick={() => saveAiLangPref('en')}
+            >
+              English
+            </button>
+          </div>
+
+          {/* The privacy sentence the spec asks for, verbatim in intent. */}
+          <p className="ai-privacy" data-testid="ai-privacy">
+            {tt('aiPrivacy')}
+          </p>
+          {aiMsg && (
+            <p className="muted small" data-testid="ai-msg">
+              {aiMsg}
+            </p>
+          )}
+        </section>
+
         <section className="settings-section">
           <h3>{tt('about')}</h3>
           <p className="muted small">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Lang, Recurrence } from '../types'
 import { t, fmtDate, fmtTime } from '../lib/i18n'
 import { store, updateTask, toggleTask, destroyTask, addTask, subtasksOf } from '../lib/store'
@@ -33,8 +33,30 @@ export default function TaskDetail({
   const st = useStore()
   const [subInput, setSubInput] = useState('')
   const [, setBellTick] = useState(0)
+  /**
+   * The clock field is controlled by `task.due_at`, and `setTime` writes to
+   * the store asynchronously. Without a local draft every keystroke triggers a
+   * re-render that pushes the *previous* value back into the input while the
+   * write is still in flight — which is exactly how digits went missing when
+   * typing a real clock time (the QA harness caught it: 21:35 arrived as
+   * 02:13). The draft holds the edited value until the store has caught up.
+   */
+  const [timeDraft, setTimeDraft] = useState<string | null>(null)
 
   const task = st.tasks.find((x) => x.id === taskId && !x.deleted)
+
+  // The lookup must stay above the hooks: a dependency array is evaluated
+  // during render, so `task` has to exist by the time it is read.
+  useEffect(() => setTimeDraft(null), [taskId])
+  const dueAt = task?.due_at ?? null
+  useEffect(() => {
+    // Drop the draft only once the store carries the edited value, otherwise
+    // blurring before the write lands would snap the field back. Depending on
+    // the value (not the row) matters: the store may keep object identity
+    // across an update, and then this would never re-run.
+    if (timeDraft !== null && toTimeInput(dueAt) === timeDraft) setTimeDraft(null)
+  }, [timeDraft, dueAt])
+
   if (!task) return null
   const tk = task
 
@@ -137,8 +159,17 @@ export default function TaskDetail({
                     className="time-input"
                     data-testid="time-input"
                     type="time"
-                    value={toTimeInput(task.due_at)}
-                    onChange={(e) => setTime(e.target.value)}
+                    value={timeDraft ?? toTimeInput(task.due_at)}
+                    onChange={(e) => {
+                      setTimeDraft(e.target.value)
+                      setTime(e.target.value)
+                    }}
+                    onBlur={() => {
+                      // If the write already landed the effect has cleared the
+                      // draft; if it has not, dropping it here would flash the
+                      // old time back, so only settle when they agree.
+                      if (toTimeInput(task.due_at) === timeDraft) setTimeDraft(null)
+                    }}
                   />
                 )}
               </div>

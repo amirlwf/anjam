@@ -21,6 +21,7 @@ import TaskDetail from './components/TaskDetail'
 import Settings from './components/Settings'
 import { Plus, X } from './components/Icons'
 import Advisory from './components/Advisory'
+import AiPanel from './components/AiPanel'
 import NewsAlert from './components/NewsAlert'
 import { idbGetAll } from './lib/idb'
 import { TABLES, buildBackup, validateBackup } from './lib/backup'
@@ -306,6 +307,7 @@ export default function App() {
             <Workout lang={lang} />
           ) : (
             <>
+              <AiPanel lang={lang} />
               <QuickAdd lang={lang} defaultListId={listId} />
               <TaskList
                 lang={lang}
