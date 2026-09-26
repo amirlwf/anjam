@@ -1345,6 +1345,76 @@ async function main() {
   // close settings again so nothing after this depends on the modal
   await evalJs(`(() => { const b = document.querySelector('.modal .close, .modal [aria-label*="بست"], .modal [aria-label*="Close"]'); if (b) b.click(); return 'closed' })()`)
   await sleep(500)
+  /* ---------------------------------------------------------------
+   * US7 — T057/T058 the network halves, with OpenRouter stubbed in-page:
+   * a 200 must surface as a *suggestion* labelled AI, the body that carried
+   * it must be free of notes/email/tokens, and a 429 must resolve to the
+   * local answer with no error popup (FR-19).
+   * --------------------------------------------------------------- */
+  await evalJs(`(() => {
+    localStorage.setItem('anjam.ai.key', 'sk-or-v1-stub-not-real')
+    localStorage.setItem('anjam.ai.model', 'test/free-model')
+    return 'key-staged'
+  })()`)
+  await sleep(300)
+
+  await evalJs(`(() => {
+    const real = window.fetch.bind(window)
+    window.__anjamRealFetch = real
+    window.__anjamStub = { mode: 'ok', bodies: [] }
+    window.fetch = function (url, init) {
+      const u = String(url)
+      if (!/chat\\/completions/.test(u)) return real.apply(this, arguments)
+      const b = init && init.body ? String(init.body) : ''
+      window.__anjamStub.bodies.push(b)
+      if (window.__anjamStub.mode === 'ok') {
+        const payload = JSON.stringify({
+          model: 'test/free-model',
+          choices: [{ message: { content: JSON.stringify({
+            lines: ['پیشنهاد آزمایشی یک', 'پیشنهاد آزمایشی دو']
+          }) }}]
+        })
+        return Promise.resolve(new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response('rate limited', { status: 429 }))
+    }
+    return 'stubbed'
+  })()`)
+  await sleep(300)
+
+  // `run()` reads the key and model on every call, so no reopen is needed —
+  // and skipping it keeps this to exactly one intercepted request.
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="ai-run"]'); if (b) b.click(); return b ? 'ran' : 'no-run' })()`)
+  await sleep(1200)
+
+  const ai200 = JSON.parse(await evalJs(readResult))
+  const bodies = JSON.parse(await evalJs(`JSON.stringify(window.__anjamStub ? window.__anjamStub.bodies : [])`))
+  check('T057 stubbed 200 renders a suggestion, not a chat box',
+    ai200.source === 'ai' && ai200.lines.join(' ').includes('پیشنهاد آزمایشی'),
+    JSON.stringify(ai200).slice(0, 200))
+  check('T057 the answer names its source', /test\/free-model/.test(ai200.note), ai200.note)
+  check('T058 request body carries no notes field', bodies.length > 0 && !/notes/i.test(bodies.join('')), bodies.join(' ').slice(0, 160))
+  check('T058 request body carries no email', bodies.length > 0 && !/@|email/i.test(bodies.join('')), bodies.join(' ').slice(0, 160))
+  check('T058 request body carries no auth token', bodies.length > 0 && !/eyJ|supabase|access_token|refresh_token|sk-or/.test(bodies.join('')), bodies.join(' ').slice(0, 160))
+  check('T058 exactly one request was made', bodies.length === 1, String(bodies.length))
+
+  // 429: same button, graceful local fallback, and nothing modal about it.
+  const alertsBefore = await evalJs(`document.querySelectorAll('.toast, .modal-overlay, [role="alert"]').length`)
+  await evalJs(`(() => { window.__anjamStub.mode = '429'; const b = document.querySelector('[data-testid="ai-run"]'); if (b) b.click(); return 'ran' })()`)
+  await sleep(1400)
+  const ai429 = JSON.parse(await evalJs(readResult))
+  const alertsAfter = await evalJs(`document.querySelectorAll('.toast, .modal-overlay, [role="alert"]').length`)
+  check('T057 a 429 falls back to the local analysis', ai429.source === 'local' && ai429.lines.length > 0, JSON.stringify(ai429).slice(0, 200))
+  check('T057 no error popup on failure', Number(alertsAfter) <= Number(alertsBefore), alertsBefore + ' -> ' + alertsAfter)
+
+  // hand the browser back to the real network and drop the staged key
+  await evalJs(`(() => {
+    if (window.__anjamRealFetch) window.fetch = window.__anjamRealFetch
+    localStorage.removeItem('anjam.ai.key')
+    localStorage.removeItem('anjam.ai.model')
+    return 'restored'
+  })()`)
+  await sleep(300)
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
   const realErrs = consoleErrs.filter((e) => !noise.test(e))

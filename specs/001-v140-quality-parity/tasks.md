@@ -196,17 +196,17 @@ assert no hardcoded colour outside `themes.ts`.
 
 ### Tests (must fail first)
 
-- [ ] **T056** [P] [US7] Harness: no key → all four features fall back locally and the app never blocks
-- [ ] **T057** [P] [US7] Harness: stubbed OpenRouter 200 → the panel shows a suggestion (not a chat box); stubbed 429/500 → graceful fallback, no error popup
-- [ ] **T058** [P] [US7] Harness: assert no request body contains notes, email or any auth token
+- [x] **T056** [P] [US7] Harness: no key → all four features fall back locally and the app never blocks
+- [x] **T057** [P] [US7] Harness: stubbed OpenRouter 200 → the panel shows a suggestion (not a chat box); stubbed 429/500 → graceful fallback, no error popup
+- [x] **T058** [P] [US7] Harness: assert no request body contains notes, email or any auth token
 
 ### Implementation
 
-- [ ] **T059** [US7] `src/lib/ai.ts` — OpenRouter client (`POST /api/v1/chat/completions`, `max_tokens` 400–700, `temperature 0.2`, JSON response format), free-model list fetched live and cached 24 h, graceful "model unavailable → pick another"
-- [ ] **T060** [US7] `src/components/AiPanel.tsx` — a collapsible card (never a chat view) with the four analyses: day plan, timetable sanity check, backlog triage, weekly review
-- [ ] **T061** [US7] Settings rows: BYOK key input (stored per user, **never** in the bundle), model picker from the live free list, AI language (fa/en)
-- [ ] **T062** [US7] Send only minimal aggregated context (today's task titles, counts, timetable shape) and state that in one sentence in settings before the key is entered
-- [ ] **T063** [US7] Deterministic local implementations for all four features, used when there is no key, no network, or a free-tier 429
+- [x] **T059** [US7] `src/lib/ai.ts` — OpenRouter client (`POST /api/v1/chat/completions`, `max_tokens` 400–700, `temperature 0.2`, JSON response format), free-model list fetched live and cached 24 h, graceful "model unavailable → pick another"
+- [x] **T060** [US7] `src/components/AiPanel.tsx` — a collapsible card (never a chat view) with the four analyses: day plan, timetable sanity check, backlog triage, weekly review
+- [x] **T061** [US7] Settings rows: BYOK key input (stored per user, **never** in the bundle), model picker from the live free list, AI language (fa/en)
+- [x] **T062** [US7] Send only minimal aggregated context (today's task titles, counts, timetable shape) and state that in one sentence in settings before the key is entered
+- [x] **T063** [US7] Deterministic local implementations for all four features, used when there is no key, no network, or a free-tier 429
 
 **Checkpoint**: all 7 user stories independently functional.
 
