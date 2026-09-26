@@ -13,24 +13,35 @@ function nextTheme(cur: ThemePref): ThemePref {
   return cur === 'light' ? 'dark' : cur === 'dark' ? 'system' : 'light'
 }
 
+/**
+ * Read the shell background off `:root` instead of repeating a literal.
+ *
+ * FR-11: colours belong to the theme modules, so this file must not carry
+ * its own. If the token has not resolved yet we write nothing at all —
+ * leaving the previous colour is better than writing one the next theme
+ * will contradict.
+ */
+function bgToken(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+}
+
 export function applyTheme(pref: ThemePref): void {
   localStorage.setItem('anjam.theme', pref)
   const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   // Native status bar + browser theme color follow the app theme.
   try {
+    const bg = bgToken()
     const meta = document.querySelector('meta[name="theme-color"]')
-    if (meta) meta.setAttribute('content', dark ? '#0f1117' : '#f5f6fa')
+    if (meta && bg) meta.setAttribute('content', bg)
     if (Capacitor.isNativePlatform()) {
       void StatusBar.setStyle({ style: dark ? StatusBarStyle.Dark : StatusBarStyle.Light }).catch(() => undefined)
       const rgb = getComputedStyle(document.body).backgroundColor
       const m = rgb.match(/(\d+),\s*(\d+),\s*(\d+)/)
       const color = m
         ? `#${[m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, '0')).join('')}`
-        : dark
-          ? '#0f1117'
-          : '#f5f6fa'
-      void StatusBar.setBackgroundColor({ color }).catch(() => undefined)
+        : bg
+      if (color) void StatusBar.setBackgroundColor({ color }).catch(() => undefined)
     }
   } catch { /* ignore */ }
 }

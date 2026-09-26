@@ -9,6 +9,8 @@ import { exportJson, store } from '../lib/store'
 import { buildBackup, validateBackup, summarize, downloadBackup, type BackupFile, type Summary } from '../lib/backup'
 import { restoreBackup } from '../lib/backupIo'
 import { prefs } from '../lib/config'
+import { THEMES, DEFAULT_THEME } from '../lib/themes'
+import { applyStoredTheme, clearAccent } from '../lib/appearance'
 import { getSections, setSection } from '../lib/sections'
 import { applyTheme } from './Header'
 import { Alert, CheckCircle, Download, Refresh, X } from './Icons'
@@ -70,6 +72,9 @@ export default function Settings({
   /* ---- local backup (US5) ---- */
   const backupFileRef = useRef<HTMLInputElement>(null)
   const [pendingRestore, setPendingRestore] = useState<{ file: BackupFile; summary: Summary } | null>(null)
+  /* ---- brand theme (US4) ---- */
+  const [skin, setSkin] = useState(() => prefs.getSkin() || DEFAULT_THEME)
+  const [variable, setVariable] = useState(() => prefs.getVariableTheme())
   const [backupMsg, setBackupMsg] = useState('')
 
   useEffect(() => {
@@ -122,6 +127,31 @@ export default function Settings({
   function handleTheme(p: ThemePref) {
     setTheme(p)
     applyTheme(p)
+    // the brand layer also keys off the mode, so re-derive both together
+    applyStoredTheme()
+  }
+
+  /**
+   * Pick one of the six brands (FR-11).
+   *
+   * Choosing a brand switches the weather layer off: two sources of truth
+   * for the accent at once is exactly how a theme picker ends up feeling
+   * broken. The brand is kept in storage either way, so toggling the
+   * weather layer back off restores what you had instead of a default.
+   */
+  function handleSkin(id: string) {
+    setSkin(id)
+    setVariable(false)
+    prefs.setSkin(id)
+    prefs.setVariableTheme(false)
+    clearAccent()
+    applyStoredTheme()
+  }
+
+  function handleVariable(on: boolean) {
+    setVariable(on)
+    prefs.setVariableTheme(on)
+    applyStoredTheme()
   }
 
   function handleAccent(hex: string) {
@@ -329,6 +359,38 @@ export default function Settings({
                 {tt('theme' + p.charAt(0).toUpperCase() + p.slice(1))}
               </button>
             ))}
+          </div>
+
+          {/* US4 / FR-11 — six brands + the weather layer. Swatches, not a
+              dropdown: the choice is visual, so show the colour. */}
+          <div className="skin-row" data-testid="skin-row" role="radiogroup" aria-label={tt('theme')}>
+            {THEMES.map((th) => (
+              <button
+                key={th.id}
+                type="button"
+                className={`skin-swatch ${!variable && skin === th.id ? 'active' : ''}`}
+                data-testid={`skin-${th.id}`}
+                aria-checked={!variable && skin === th.id}
+                role="radio"
+                title={lang === 'fa' ? th.fa : th.en}
+                onClick={() => handleSkin(th.id)}
+              >
+                <i className="skin-dot" style={{ background: th.swatch }} />
+                <span>{lang === 'fa' ? th.fa : th.en}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`skin-swatch is-variable ${variable ? 'active' : ''}`}
+              data-testid="skin-variable"
+              aria-checked={variable}
+              role="radio"
+              title={tt('themeVariable')}
+              onClick={() => handleVariable(!variable)}
+            >
+              <i className="skin-dot skin-dot-weather" />
+              <span>{tt('themeVariable')}</span>
+            </button>
           </div>
           <h3 style={{ marginTop: 14 }}>{tt('language')}</h3>
           <div className="segmented">

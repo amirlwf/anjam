@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Lang } from '../types'
 import { t, toFaDigits } from '../lib/i18n'
+import { applyStoredTheme } from '../lib/appearance'
 import {
   cachedWeather,
   fetchWeather,
@@ -115,6 +116,9 @@ export default function WeatherChip({ lang }: { lang: Lang }) {
       const next = await fetchWeather(lang, force)
       setW(next)
       setErr(false)
+      // A fresh condition can change the weather-reactive accent (FR-12);
+      // re-apply so the variable theme tracks the forecast, not the boot.
+      applyStoredTheme()
     } catch {
       if (!cachedWeather()) setErr(true)
     } finally {
@@ -137,6 +141,7 @@ export default function WeatherChip({ lang }: { lang: Lang }) {
       const next = await fetchWeather(lang, true)
       setW(next)
       setErr(false)
+      applyStoredTheme()
     } catch {
       if (!cachedWeather()) setErr(true)
     } finally {

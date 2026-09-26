@@ -291,9 +291,23 @@ async function main() {
   console.log('CAL_GREG_FILE:', await shot('13-cal-gregorian.png'))
 
   // pick a date -> popover closes, trigger shows it
+  // The fixture needs a datetime that is (a) still in the future when the
+  // scheduler runs and (b) inside the 24 h window a countdown is promoted
+  // from. So decide the clock first, then pick whichever date makes that
+  // clock valid: 90 minutes from now, on today, unless that crosses
+  // midnight — then the wrapped time on tomorrow.
+  const RING = (() => {
+    const now = new Date()
+    const d = new Date(now.getTime() + 90 * 60000)
+    const time = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+    return { time, wraps: d.getDate() !== now.getDate() }
+  })()
   await evalJs(`(() => {
-    const days = [...document.querySelectorAll('.cal-day:not(.faded)')]
-    days[25] && days[25].click(); return 'picked'
+    const cells = [...document.querySelectorAll('.cal-day')]
+    const i = cells.findIndex(c => c.classList.contains('today'))
+    const target = ${JSON.stringify(RING.wraps)} ? cells[i + 1] : cells[i]
+    if (target) target.click()
+    return 'picked:' + (i >= 0 ? i : 'none') + ' wraps=' + ${JSON.stringify(RING.wraps)}
   })()`)
   await sleep(400)
   const picked = await evalJs(`JSON.stringify({
@@ -330,23 +344,28 @@ async function main() {
   await sleep(500)
   const timeVal0 = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
   check('time input visible', timeVal0.length === 5, timeVal0)
-  // type 17:30 with trusted key events
+  // The task is dated tomorrow, so any clock time is in the future and the
+  // scheduler will plan it. The fixture still types the digits with trusted
+  // key events — that is what is under test, not `input.value = …`.
+  const ringTime = RING.time
   await evalJs(`(() => { const el = document.querySelector('[data-testid=time-input]'); if (el) el.focus(); return !!el })()`)
-  for (const ch of ['1', '7', '3', '0']) {
+  for (const ch of ringTime.replace(':', '').split('')) {
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: ch, code: 'Digit' + ch, text: ch, windowsVirtualKeyCode: 48 + Number(ch) })
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch, code: 'Digit' + ch, windowsVirtualKeyCode: 48 + Number(ch) })
     await sleep(80)
   }
   await sleep(500)
   const timeVal = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
-  check('time typed 17:30', timeVal === '17:30', timeVal)
+  check('ring time typed', timeVal === ringTime, timeVal + ' want ' + ringTime)
   await sleep(300)
   const bellDom = await evalJs(`JSON.stringify({
     bell: !!document.querySelector('[data-testid=bell-btn]'),
     text: document.querySelector('[data-testid=bell-btn]')?.textContent.trim() || ''
   })`)
   const bd = JSON.parse(bellDom)
-  check('bell shows rings-at', bd.bell && /زنگ/.test(bd.text) && /17/.test(toAscii(bd.text)), bd.text)
+  check('bell shows rings-at',
+    bd.bell && /زنگ/.test(bd.text) && toAscii(bd.text).includes(ringTime),
+    bd.text + ' want ' + ringTime)
   console.log('TASK_ALARM_FILE:', await shot('15-task-alarm.png'))
   // bell toggle off/on
   await evalJs(`(() => { const b = document.querySelector('[data-testid=bell-btn]'); b && b.click(); return 'off' })()`)
@@ -765,6 +784,89 @@ async function main() {
     return { sec, sw: document.querySelectorAll('.accent-swatch').length };
   })()`)
   check('appearance section + 6 accent swatches', ap.sec && ap.sw >= 6, JSON.stringify(ap))
+  /* ---------------------------------------------------------------
+   * US4 — brand themes (T034 matrix, T035 static audit, variable layer)
+   * The picker is the feature; a swatch that only changes the swatch is
+   * not the feature, so each brand is asserted on the tokens the whole
+   * app reads.
+   * --------------------------------------------------------------- */
+
+  /* T035 — colour belongs to the theme modules, not to components. */
+  {
+    const bad = []
+    const walk = (dir) => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fp = path.join(dir, ent.name)
+        if (ent.isDirectory()) walk(fp)
+        else if (ent.name.endsWith('.tsx')) {
+          fs.readFileSync(fp, 'utf8').split(/\r?\n/).forEach((ln, i) => {
+            if (/(#[0-9a-f]{3,8}\b)|\brgba?\(|\bhsla?\(/i.test(ln)) bad.push(`${ent.name}:${i + 1}`)
+          })
+        }
+      }
+    }
+    walk(path.join(__dirname, '..', 'src'))
+    check('T035 no hardcoded colour outside the theme modules', bad.length === 0, bad.slice(0, 6).join(', '))
+  }
+
+  /* T034 — every brand paints its own tokens. */
+  const SKINS = ['indigo', 'graphite', 'sunset', 'forest', 'ocean', 'rose']
+  const skinAccents = []
+  for (const id of SKINS) {
+    const r = await evalJs(`(() => {
+      const b = document.querySelector('[data-testid="skin-${id}"]');
+      if (!b) return JSON.stringify({ missing: true });
+      b.click();
+      const e = document.documentElement;
+      const st = document.getElementById('anjam-theme-tokens');
+      const css = (st && st.textContent) || '';
+      return JSON.stringify({
+        brand: e.dataset.brand,
+        accent: getComputedStyle(e).getPropertyValue('--accent').trim(),
+        bg: getComputedStyle(e).getPropertyValue('--bg').trim(),
+        inCss: css.indexOf("data-brand='" + "${id}" + "'") >= 0
+      })
+    })()`)
+    const sk = JSON.parse(r)
+    skinAccents.push(sk.accent || '')
+    check(`T034 ${id} brand applied`, sk.brand === id && !!sk.accent && !!sk.bg && sk.inCss, r)
+  }
+  check('T034 brands do not share one accent',
+    new Set(skinAccents.filter(Boolean)).size >= 4,
+    `${new Set(skinAccents.filter(Boolean)).size}/${SKINS.length}`)
+
+  /* The variable layer is the same pseudo-theme with a weather accent. */
+  await evalJs(`(() => {
+    const w = { temp: 12, hi: 15, lo: 9, code: 0, wind: 10, place: 'Tehran',
+                at: Date.now(), loc: { lat: 35.7, lon: 51.4 }, night: null };
+    localStorage.setItem('anjam.weather', JSON.stringify({ w, loc: { lat: 35.7, lon: 51.4, place: 'Tehran' } }));
+    const b = document.querySelector('[data-testid="skin-variable"]');
+    if (b) b.click();
+    return 1
+  })()`)
+  await sleep(400)
+  const varSt = await evalJs(`(() => {
+    const e = document.documentElement;
+    const st = document.getElementById('anjam-weather-theme');
+    return JSON.stringify({
+      variable: e.dataset.variable || '',
+      css: (st && st.textContent) || '',
+      accent: getComputedStyle(e).getPropertyValue('--accent').trim(),
+      // the override must OUTRANK the brand block, not merely sit beside it
+      important: !!(st && /!important/.test(st.textContent)),
+      brand: e.dataset.brand || ''
+    })
+  })()`)
+  {
+    const v = JSON.parse(varSt)
+    const installs = v.css.indexOf('--accent:') >= 0
+    check('T034 variable (weather) layer applies',
+      v.variable === 'on' && installs && !!v.accent && v.important,
+      JSON.stringify({ variable: v.variable, installs, accent: v.accent, brand: v.brand }))
+  }
+  // back to a static brand so the rest of the run is deterministic
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="skin-indigo"]'); if (b) b.click(); return 1 })()`)
+  await sleep(300)
 
   const motionOk = await evalJs(`(() => {
     const btns = [...document.querySelectorAll('.settings-section .seg-btn')];
@@ -942,10 +1044,14 @@ async function main() {
     window.__notifLog = []
     window.fetch = window.__origFetch || window.fetch
     return 1 })()`
-  const newsItem = (title) => [{
+  // `isFresh` drops anything dated after the clock we hand the engine, so
+  // the fixture must be aged against THAT clock, not against Date.now().
+  // Pegging it to now() only worked while the machine happened to sit on the
+  // fixture's date — which is exactly why this test turned red at midnight.
+  const newsItem = (title, atMs) => [{
     title,
     link: 'https://example.com/n1',
-    pubDate: new Date(Date.now() - 3600e3).toISOString(),
+    pubDate: new Date(atMs - 3600e3).toISOString(),
     source: 'bing.com',
   }]
   const newsState = async () => {
@@ -962,7 +1068,7 @@ async function main() {
 
   /* T047 — a real, in-region, fresh closure at 21:00 must speak */
   await evalJs(newsReset('هشتگرد'))
-  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه', new Date(2026, 8, 25, 21, 0).getTime()))}).then(() => 1)`)
   const n47 = await newsState()
   check('news: 21:00 in-region closure pops up', n47.shown === true, JSON.stringify(n47))
   check('news: popup shows the headline, not a key', n47.text.length > 8 && !/^news/.test(n47.text), n47.text)
@@ -974,7 +1080,7 @@ async function main() {
   /* acknowledge once, and the same headline must not nag again */
   await evalJs(`(() => { const b = document.querySelector('[data-testid=news-ack]'); if (b) b.click(); return 1 })()`)
   await sleep(400)
-  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 30).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 30).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه', new Date(2026, 8, 25, 21, 30).getTime()))}).then(() => 1)`)
   const nAck = await newsState()
   check('news: an acknowledged headline stays silent', nAck.shown === false, JSON.stringify(nAck))
 
@@ -994,18 +1100,94 @@ async function main() {
 
   /* T049 — an Alborz headline must not alert a Tehran phone */
   await evalJs(newsReset('تهران'))
-  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 21, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه', new Date(2026, 8, 25, 21, 0).getTime()))}).then(() => 1)`)
   const nWrong = await newsState()
   check('news: region mismatch stays silent', nWrong.shown === false && nWrong.notifs.length === 0, JSON.stringify(nWrong))
 
   /* the check must be impossible outside the night window */
   await evalJs(newsReset('هشتگرد'))
-  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 12, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه'))}).then(() => 1)`)
+  await evalJs(`window.__anjamNews.run(new Date(2026, 8, 25, 12, 0).getTime(), ${JSON.stringify(newsItem('تعطیلی مدارس البرز در روز شنبه', new Date(2026, 8, 25, 12, 0).getTime()))}).then(() => 1)`)
   const nNoon = await newsState()
   check('news: silent at noon whatever the feed says', nNoon.shown === false, JSON.stringify(nNoon))
 
   await evalJs(newsReset(''))
   await evalJs(`(() => { window.fetch = window.__origFetch || window.fetch; return 1 })()`)
+  /* ---------------------------------------------------------------
+   * US4 — T033 (logo scale, 6 placements) and the T034 persistence half.
+   * The reload goes last on purpose: after it there is no test left that
+   * depends on where the app was in the DOM.
+   * --------------------------------------------------------------- */
+
+  /* T033 — the box as rendered, sidebar at desktop width. */
+  await send('Emulation.clearDeviceMetricsOverride')
+  await sleep(500)
+  const logoDesk = await evalJs(`(() => {
+    const el = document.querySelector('.sidebar .brand-mark.is-logo');
+    if (!el) return JSON.stringify({ missing: true });
+    const r = el.getBoundingClientRect();
+    return JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height) })
+  })()`)
+  {
+    const l = JSON.parse(logoDesk)
+    check('T033 sidebar logo >= 48px as rendered', !l.missing && Math.max(l.w, l.h) >= 48, logoDesk)
+  }
+
+  /* T033 — the placements that are not mounted during the run (auth, setup,
+   * boot splash, alarm ring) are asserted on the rule that feeds them,
+   * rather than by tearing the app down to reach each screen. */
+  {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles.css'), 'utf8')
+    const rule = (sel) => {
+      const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}'))
+      if (!m) return null
+      const w = (m[1].match(/\bwidth:\s*(\d+(?:\.\d+)?)px/) || [])[1]
+      const h = (m[1].match(/\bheight:\s*(\d+(?:\.\d+)?)px/) || [])[1]
+      return w && h ? Math.max(Number(w), Number(h)) : null
+    }
+    const need = [
+      ['.brand.mini .brand-mark.is-logo', 'sidebar / drawer'],
+      ['.auth-card .brand .brand-mark.is-logo', 'auth + setup'],
+      ['.boot-mark', 'boot splash'],
+      ['.alarm-logo', 'alarm ring'],
+    ]
+    for (const [sel, where] of need) {
+      const px = rule(sel)
+      check(`T033 ${where} logo rule >= 48px`, px !== null && px >= 48, `${sel} = ${px}`)
+    }
+  }
+
+  /* T034 — "chosen" means it is still your theme after a restart. */
+  // The news block may have left a different view on screen, so open the
+  // picker again first: a click that never landed is not evidence about
+  // persistence either way.
+  await evalJs(`(() => {
+    if (!document.querySelector('[data-testid="skin-ocean"]')) {
+      const b = [...document.querySelectorAll('.topbar-actions button')]
+        .find(x => /تنظیمات|Settings/i.test(x.title || ''))
+      if (b) b.click()
+    }
+    return 1
+  })()`)
+  await sleep(800)
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="skin-ocean"]'); if (b) b.click(); return !!b })()`)
+  await sleep(400)
+  const chosen = await evalJs(`document.documentElement.dataset.brand || ''`)
+  check('T034 ocean brand picked before reload', chosen === 'ocean', chosen)
+  await sleep(300)
+  await send('Page.reload', {}, 90000)
+  await sleep(2500)
+  const afterReload = await evalJs(`(() => {
+    const e = document.documentElement;
+    return JSON.stringify({
+      brand: e.dataset.brand || '',
+      accent: getComputedStyle(e).getPropertyValue('--accent').trim(),
+      phase: e.dataset.phase || ''
+    })
+  })()`)
+  {
+    const a = JSON.parse(afterReload)
+    check('T034 brand survives a reload', a.brand === 'ocean' && !!a.accent, afterReload)
+  }
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
   const realErrs = consoleErrs.filter((e) => !noise.test(e))

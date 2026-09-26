@@ -338,18 +338,24 @@ export function applyWeatherOverride(
     el.id = OVERRIDE_ID
     document.head.appendChild(el)
   }
+  // This is an OVERRIDE layer, so it has to win over the brand block, whose
+  // selector (`:root[data-brand=…][data-theme=…]`) outranks a plain
+  // `:root`. Specificity is the reason `!important` is here: without it the
+  // weather accent is installed and then silently ignored, which is exactly
+  // the bug this layer exists to avoid.
   el.textContent = [
-    `:root{--accent:${light}}`,
-    `[data-theme='dark']{--accent:${dark}}`
+    `:root{--accent:${light} !important}`,
+    `[data-theme='dark']{--accent:${dark} !important}`
   ].join('')
 
   root.dataset.variable = 'on'
 
   // 400 ms colour cross-fade; skipped when the user turned motion off.
+  // `motion` is an attribute, not a custom property — reading it off
+  // getComputedStyle can only ever return ''.
   const reduced =
-    getComputedStyle(root).getPropertyValue('motion') === 'off' ||
-    window.matchMedia(NO_CROSSFADE).matches
-  if (!reduced && root.dataset.motion !== 'off') {
+    root.dataset.motion === 'off' || window.matchMedia(NO_CROSSFADE).matches
+  if (!reduced) {
     root.style.transition = 'color 400ms var(--ease-out), background-color 400ms var(--ease-out)'
     window.setTimeout(() => { root.style.transition = '' }, 450)
   }

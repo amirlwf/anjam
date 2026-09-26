@@ -65,6 +65,8 @@ export function clearConfig(): void {
 const V14 = {
   theme: 'anjam.theme',
   themeMode: 'anjam.themeMode',
+  /** brand theme id (`indigo` … `graphite`); ignored while variableTheme is on */
+  skin: 'anjam.skin',
   variableTheme: 'anjam.variableTheme',
   newsRegion: 'anjam.news.region',
   newsLastCheck: 'anjam.news.lastCheck',
@@ -112,6 +114,11 @@ export const prefs = {
   setThemeMode: (v: string) => setStr(V14.themeMode, v),
   getVariableTheme: () => getBool(V14.variableTheme, false),
   setVariableTheme: (v: boolean) => setBool(V14.variableTheme, v),
+
+  /** The six-brand choice, kept separate from the variable switch so turning
+   *  the weather theme off restores the brand you had, not a default. */
+  getSkin: () => getStr(V14.skin),
+  setSkin: (v: string) => setStr(V14.skin, v),
 
   getNewsRegion: () => getStr(V14.newsRegion),
   setNewsRegion: (v: string) => setStr(V14.newsRegion, v),

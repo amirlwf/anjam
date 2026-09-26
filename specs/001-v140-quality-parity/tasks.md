@@ -23,11 +23,11 @@ touch). Do not re-do the grid/timer/alarm work.
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] **T001** Bump `package.json` to `1.4.0` and `android/app/build.gradle` `versionCode` +1 / `versionName "1.4.0"`, and mirror the version into `electron/package.json` if it carries one
-- [ ] **T002** [P] Create `src/lib/themes.ts` — `ThemeDefinition` registry, 6 themes × {light, dark} token sets, plus the `variable` pseudo-theme marker and the `applyTheme(id, mode)` CSS-custom-property writer
-- [ ] **T003** [P] Extend `src/lib/i18n.ts` with every new fa/en string (advisory phrases, news alert copy, backup labels, theme names, period labels) — no string may be added later without its `en` twin
-- [ ] **T004** [P] Extend `src/lib/config.ts` with pref keys: `anjam.theme`, `anjam.themeMode`, `anjam.variableTheme`, `anjam.news.region`, `anjam.news.lastCheck`, `anjam.advisory.lastRun`, `anjam.backup.lastExport`
-- [ ] **T005** Extend the `--ease-out` / `--dur-*` / `--spring` token layer in `src/styles.css` and add a `[data-theme]` + `[data-theme-mode]` attribute contract that `themes.ts` writes to; verify no hardcoded colour survives outside the token files (FR-11)
+- [x] **T001** Bump `package.json` to `1.4.0` and `android/app/build.gradle` `versionCode` +1 / `versionName "1.4.0"`, and mirror the version into `electron/package.json` if it carries one
+- [x] **T002** [P] Create `src/lib/themes.ts` — `ThemeDefinition` registry, 6 themes × {light, dark} token sets, plus the `variable` pseudo-theme marker and the `applyTheme(id, mode)` CSS-custom-property writer
+- [x] **T003** [P] Extend `src/lib/i18n.ts` with every new fa/en string (advisory phrases, news alert copy, backup labels, theme names, period labels) — no string may be added later without its `en` twin
+- [x] **T004** [P] Extend `src/lib/config.ts` with pref keys: `anjam.theme`, `anjam.themeMode`, `anjam.variableTheme`, `anjam.news.region`, `anjam.news.lastCheck`, `anjam.advisory.lastRun`, `anjam.backup.lastExport`
+- [x] **T005** Extend the `--ease-out` / `--dur-*` / `--spring` token layer in `src/styles.css` and add a `[data-theme]` + `[data-theme-mode]` attribute contract that `themes.ts` writes to; verify no hardcoded colour survives outside the token files (FR-11)
 
 ---
 
@@ -35,10 +35,10 @@ touch). Do not re-do the grid/timer/alarm work.
 
 **CRITICAL**: no story work starts until this phase is done.
 
-- [ ] **T006** Extend `src/lib/weather.ts` to expose the fields the advisory needs: `code` (weather code), `tempMin`/`tempMax` for the coming night, `isDay`, `precipProb`, `precipMm`, `windMax`, `uvIndex`, and the resolved `place` (used as the news region, D2)
-- [ ] **T007** [P] Create `src/lib/advisory.ts` — the pure rule engine: `evaluate(now, forecast) → Advisory | null`, one branch per condition class in FR-05, each message authored per condition **and** per language with an actionable clause (FR-06). Pure function, no I/O, < 50 ms
-- [ ] **T008** [P] Create `src/lib/news.ts` — `fetchNews(region) → NewsItem[]` per research.md §6.3: primary = rss2json over Bing News RSS, 4 keyword queries × 2 orderings, merged; fallback = direct CORS-open feeds (`borna.news/fa/rss/allnews` first, then entekhab/asriran/yjc), keyword-filtered client-side. 2 retries with backoff, 20 s cap per source
-- [ ] **T009** [P] Create `src/lib/backup.ts` — `exportBackup()` / `validateBackup()` / `importBackup()` per FR-14/FR-15: every table + all `anjam.*` prefs + IndexedDB `meta`, versioned envelope, validation **before** any write, restore summary, explicit confirmation, atomic from the user's point of view
+- [x] **T006** Extend `src/lib/weather.ts` to expose the fields the advisory needs: `code` (weather code), `tempMin`/`tempMax` for the coming night, `isDay`, `precipProb`, `precipMm`, `windMax`, `uvIndex`, and the resolved `place` (used as the news region, D2)
+- [x] **T007** [P] Create `src/lib/advisory.ts` — the pure rule engine: `evaluate(now, forecast) → Advisory | null`, one branch per condition class in FR-05, each message authored per condition **and** per language with an actionable clause (FR-06). Pure function, no I/O, < 50 ms
+- [x] **T008** [P] Create `src/lib/news.ts` — `fetchNews(region) → NewsItem[]` per research.md §6.3: primary = rss2json over Bing News RSS, 4 keyword queries × 2 orderings, merged; fallback = direct CORS-open feeds (`borna.news/fa/rss/allnews` first, then entekhab/asriran/yjc), keyword-filtered client-side. 2 retries with backoff, 20 s cap per source
+- [x] **T009** [P] Create `src/lib/backup.ts` — `exportBackup()` / `validateBackup()` / `importBackup()` per FR-14/FR-15: every table + all `anjam.*` prefs + IndexedDB `meta`, versioned envelope, validation **before** any write, restore summary, explicit confirmation, atomic from the user's point of view
 - [ ] **T010** Add the migration for `study_slots.period`: additive + idempotent, `start`/`"end"` become nullable, partial unique index per FR-08/FR-09, and pass `python scripts/sql-lint.py`
 - [ ] **T011** Extend `src/lib/store.ts` with the period-based slot API (`listPeriods`, `setPeriod`, `clearPeriod`) alongside the existing slot API, plus the `__anjamStore` debug hook the harness needs to seed a timetable without Supabase
 
@@ -57,14 +57,14 @@ emulation, taps the FAB on each of the 12 views, and measures `scrollWidth <= cl
 ### Tests (must fail first)
 
 - [ ] **T012** [P] [US1] Harness: `scripts/cdp-ux-check.mjs` — touch-scroll test on 3 views (dispatch `Input.dispatchTouchEvent`, assert the view scrolled and the document did not)
-- [ ] **T013** [P] [US1] Harness: FAB test on every view — tap, assert a composer became visible, close, assert no view regressed
+- [x] **T013** [P] [US1] Harness: FAB test on every view — tap, assert a composer became visible, close, assert no view regressed
 - [ ] **T014** [P] [US1] Harness: overflow assertion at 360 / 390 / 844 / 1440 px for every view
 
 ### Implementation
 
-- [ ] **T015** [US1] Add `min-block-size: 0` to `.main-col` and `.view` and `touch-action: pan-y` on the view column in `src/styles.css`; add `overscroll-behavior: contain` + `touch-action: pan-y` to every nested scroller (`.modal`, `.detail-body`, `.wp-results`, `.sidebar`) so no nested trap steals the gesture
-- [ ] **T016** [US1] Add `QuickAddModal` in `src/components/` reusing the existing NLP parser; when the current view has no `#quickadd-input`, the FAB opens this modal on **both** shells
-- [ ] **T017** [US1] Make `.tt-grid` and `.week-bars` reflow at narrow widths: the period grid scrolls horizontally **inside its own container** with `-webkit-overflow-scrolling: touch`, so the page itself never overflows, while desktop keeps the full grid
+- [x] **T015** [US1] Add `min-block-size: 0` to `.main-col` and `.view` and `touch-action: pan-y` on the view column in `src/styles.css`; add `overscroll-behavior: contain` + `touch-action: pan-y` to every nested scroller (`.modal`, `.detail-body`, `.wp-results`, `.sidebar`) so no nested trap steals the gesture
+- [x] **T016** [US1] Add `QuickAddModal` in `src/components/` reusing the existing NLP parser; when the current view has no `#quickadd-input`, the FAB opens this modal on **both** shells
+- [x] **T017** [US1] Make `.tt-grid` and `.week-bars` reflow at narrow widths: the period grid scrolls horizontally **inside its own container** with `-webkit-overflow-scrolling: touch`, so the page itself never overflows, while desktop keeps the full grid
 - [ ] **T018** [US1] Verify on the real Android WebView (`android/` build → device or emulator) that T012–T014 also pass there, not just in desktop Chrome
 
 **Checkpoint**: US1 fully functional and independently verified. Ship as the P1 bugfix release.
@@ -79,15 +79,15 @@ assert a message appears / does not appear, and that a fine-weather forecast pro
 
 ### Tests (must fail first)
 
-- [ ] **T019** [P] [US2] Harness: advisory matrix — for each condition class in FR-05, seed a forecast, assert the expected message key and language
-- [ ] **T020** [P] [US2] Harness: window test — outside 21:00:00–07:59:59 the engine returns `null` and fires no notification; inside, it runs at most once per hour (FR-04)
+- [x] **T019** [P] [US2] Harness: advisory matrix — for each condition class in FR-05, seed a forecast, assert the expected message key and language
+- [x] **T020** [P] [US2] Harness: window test — outside 21:00:00–07:59:59 the engine returns `null` and fires no notification; inside, it runs at most once per hour (FR-04)
 
 ### Implementation
 
-- [ ] **T021** [US2] `src/components/Advisory.tsx` — the popup: one card, the advice line, an optional "فردا چند درجه" secondary line, dismiss that persists for the night; mounted in `App.tsx` and driven by the `21:00–08:00` window
-- [ ] **T022** [US2] Wire the scheduler: on app wake / `visibilitychange` and on an hourly tick inside the window, call `evaluate()`; schedule the local notification through the existing Capacitor path only when there is a real advisory
-- [ ] **T023** [US2] Cache the last advisory per night (`anjam.advisory.lastRun`) so a re-render, a wake or a second window does not re-notify the same advice
-- [ ] **T024** [US2] Assert FR-19 for this story: no network error, no stale cache and no model failure may produce a popup — the whole path is `try → catch → return null`
+- [x] **T021** [US2] `src/components/Advisory.tsx` — the popup: one card, the advice line, an optional "فردا چند درجه" secondary line, dismiss that persists for the night; mounted in `App.tsx` and driven by the `21:00–08:00` window
+- [x] **T022** [US2] Wire the scheduler: on app wake / `visibilitychange` and on an hourly tick inside the window, call `evaluate()`; schedule the local notification through the existing Capacitor path only when there is a real advisory
+- [x] **T023** [US2] Cache the last advisory per night (`anjam.advisory.lastRun`) so a re-render, a wake or a second window does not re-notify the same advice
+- [x] **T024** [US2] Assert FR-19 for this story: no network error, no stale cache and no model failure may produce a popup — the whole path is `try → catch → return null`
 
 **Checkpoint**: US2 works standalone. Weather chips and the existing popup are untouched.
 
@@ -102,17 +102,17 @@ the live rows and assert the mapping is deterministic and idempotent.
 
 ### Tests (must fail first)
 
-- [ ] **T025** [P] [US3] Harness: period grid renders N cells for N periods, in order, with the right subject labels
-- [ ] **T026** [P] [US3] Harness: assert zero `input[type=time]` and zero clock strings inside the Study view
+- [x] **T025** [P] [US3] Harness: period grid renders N cells for N periods, in order, with the right subject labels
+- [x] **T026** [P] [US3] Harness: assert zero `input[type=time]` and zero clock strings inside the Study view
 - [ ] **T027** [P] [US3] `scripts/sql-lint.py` on the migrated schema + a fixture test proving the `start`-ordering → `period_index` mapping is stable across re-runs
 
 ### Implementation
 
-- [ ] **T028** [US3] Rewrite `src/components/Study.tsx` as the period grid: per-day period count 1–12, tap a cell → subject picker, long-press → clear; the grid scrolls horizontally inside its own container on narrow screens (ties into T017)
-- [ ] **T029** [US3] Remove every clock-time affordance from the Study tab: no timer row, no per-day time inputs, no "روز" counters — the per-day count *is* the schedule
-- [ ] **T030** [US3] Migrate existing `study_slots` rows deterministically (order by `start` within a weekday → `period_index` 1..n) and make the migration safe to re-run
-- [ ] **T031** [US3] Add i18n for period labels (زنگ ۱ … زنگ ۱۲) in fa+en, and subject-picker empty state
-- [ ] **T032** [US3] Keep the existing study-minute counter and workout section working untouched (they are not the class timetable)
+- [x] **T028** [US3] Rewrite `src/components/Study.tsx` as the period grid: per-day period count 1–12, tap a cell → subject picker, long-press → clear; the grid scrolls horizontally inside its own container on narrow screens (ties into T017)
+- [x] **T029** [US3] Remove every clock-time affordance from the Study tab: no timer row, no per-day time inputs, no "روز" counters — the per-day count *is* the schedule
+- [x] **T030** [US3] Migrate existing `study_slots` rows deterministically (order by `start` within a weekday → `period_index` 1..n) and make the migration safe to re-run
+- [x] **T031** [US3] Add i18n for period labels (زنگ ۱ … زنگ ۱۲) in fa+en, and subject-picker empty state
+- [x] **T032** [US3] Keep the existing study-minute counter and workout section working untouched (they are not the class timetable)
 
 **Checkpoint**: US3 works standalone; old timetables converted on first open.
 
@@ -127,16 +127,16 @@ assert no hardcoded colour outside `themes.ts`.
 
 ### Tests (must fail first)
 
-- [ ] **T033** [P] [US4] Harness: logo longest-side ≥ 48 px measured from the rendered box in 6 placements (desktop sidebar, mobile drawer, auth, setup, boot splash, alarm ring)
-- [ ] **T034** [P] [US4] Harness: theme matrix — 6 themes × light/dark, assert the token set applies and persists across reload; assert the variable theme re-derives on a weather change
-- [ ] **T035** [P] [US4] Static check: no hardcoded colour literal in `src/**/*.tsx` outside the theme modules (FR-11)
+- [x] **T033** [P] [US4] Harness: logo longest-side ≥ 48 px measured from the rendered box in 6 placements (desktop sidebar, mobile drawer, auth, setup, boot splash, alarm ring)
+- [x] **T034** [P] [US4] Harness: theme matrix — 6 themes × light/dark, assert the token set applies and persists across reload; assert the variable theme re-derives on a weather change
+- [x] **T035** [P] [US4] Static check: no hardcoded colour literal in `src/**/*.tsx` outside the theme modules (FR-11)
 
 ### Implementation
 
-- [ ] **T036** [US4] Render the logo larger everywhere: 58 px sidebar, 48 px mini/drawer, 72 px auth card, and scale up the boot splash and alarm ring marks (the 46/40/58 → 58/48/72 part shipped in 824010a)
-- [ ] **T037** [US4] Wire the theme picker into `Settings.tsx` (grid of 6 swatches × light/dark toggle + a "متغیر با هوا" row) and `src/lib/appearance.ts`; persist and re-apply on boot
-- [ ] **T038** [US4] Implement the variable (weather) theme as a runtime override layer on the same tokens, driven by `code` + `isDay`: clear day/night, rain, snow, storm, fog — with a 400 ms `color`/`background-color` cross-fade
-- [ ] **T039** [US4] Motion pass: route every new animation through `--ease-out` / `--dur-*` / `--spring`, keep it to 150–420 ms and to transform/opacity only, and honour `prefers-reduced-motion` plus the existing motion toggle (FR-13)
+- [x] **T036** [US4] Render the logo larger everywhere: 58 px sidebar, 48 px mini/drawer, 72 px auth card, and scale up the boot splash and alarm ring marks (the 46/40/58 → 58/48/72 part shipped in 824010a)
+- [x] **T037** [US4] Wire the theme picker into `Settings.tsx` (grid of 6 swatches × light/dark toggle + a "متغیر با هوا" row) and `src/lib/appearance.ts`; persist and re-apply on boot
+- [x] **T038** [US4] Implement the variable (weather) theme as a runtime override layer on the same tokens, driven by `code` + `isDay`: clear day/night, rain, snow, storm, fog — with a 400 ms `color`/`background-color` cross-fade
+- [x] **T039** [US4] Motion pass: route every new animation through `--ease-out` / `--dur-*` / `--spring`, keep it to 150–420 ms and to transform/opacity only, and honour `prefers-reduced-motion` plus the existing motion toggle (FR-13)
 - [ ] **T040** [US4] Soften the surfaces: consistent corner radii, one elevation scale, and hairline separators that read as iOS rather than as web borders
 
 **Checkpoint**: all four P1 stories plus this P2 story ship; US5–US7 remain.
@@ -157,9 +157,9 @@ assert no hardcoded colour outside `themes.ts`.
 ### Implementation
 
 - [ ] **T043** [US5] `src/components/` backup section in `Settings.tsx`: Export → file save (Electron `dialog`, browser download, Android `Filesystem`/share sheet), with the `anjam.backup.lastExport` stamp
-- [ ] **T044** [US5] Import flow: pick file → `validateBackup()` → **show a summary (N tasks, M slots, K prefs, version)** → require explicit confirmation → write → reload state
-- [ ] **T045** [US5] Make the restore atomic from the user's point of view: stage everything, and on any write error roll back to the pre-import snapshot rather than leaving a half-restored database
-- [ ] **T046** [US5] Never store a backup file server-side and never include auth tokens in the envelope
+- [x] **T044** [US5] Import flow: pick file → `validateBackup()` → **show a summary (N tasks, M slots, K prefs, version)** → require explicit confirmation → write → reload state
+- [x] **T045** [US5] Make the restore atomic from the user's point of view: stage everything, and on any write error roll back to the pre-import snapshot rather than leaving a half-restored database
+- [x] **T046** [US5] Never store a backup file server-side and never include auth tokens in the envelope
 
 **Checkpoint**: US5 works standalone.
 
@@ -172,18 +172,18 @@ assert no hardcoded colour outside `themes.ts`.
 
 ### Tests (must fail first)
 
-- [ ] **T047** [P] [US6] Harness: with a stubbed matching item, advance the clock to 21:00 and assert the popup and the notification appear
-- [ ] **T048** [P] [US6] Harness: with an empty / failing fetch, assert **no** popup and **no** notification (FR-17, FR-19)
-- [ ] **T049** [P] [US6] Harness: region mismatch — an Alborz item while the user's weather city is Tehran → no alert
+- [x] **T047** [P] [US6] Harness: with a stubbed matching item, advance the clock to 21:00 and assert the popup and the notification appear
+- [x] **T048** [P] [US6] Harness: with an empty / failing fetch, assert **no** popup and **no** notification (FR-17, FR-19)
+- [x] **T049** [P] [US6] Harness: region mismatch — an Alborz item while the user's weather city is Tehran → no alert
 
 ### Implementation
 
-- [ ] **T050** [US6] Implement the research.md §6.3 fetch: 4 keyword queries (`تعطیلی مدارس {region}`, `تعطیلی مدارس ساوجبلاغ`, `تعطیلی مدارس هشتگرد`, `بارش برف مدارس البرز`) × 2 Bing orderings via rss2json, merged and deduped
-- [ ] **T051** [US6] Keyword gate: an item counts only with ≥2 closure keywords + ≥1 locality term, and only if ≤24 h old; otherwise it is dropped silently
-- [ ] **T052** [US6] Resolve the region from the saved weather location (D2), with a settings override; build the URL templates exactly as research.md documents them
-- [ ] **T053** [US6] `NewsAlert.tsx` — the 21:00 popup: headline, source, a link out to the publisher (never republish full text), acknowledge action; and a one-time re-show of an unacknowledged alert on the next open within 12 h
+- [x] **T050** [US6] Implement the research.md §6.3 fetch: 4 keyword queries (`تعطیلی مدارس {region}`, `تعطیلی مدارس ساوجبلاغ`, `تعطیلی مدارس هشتگرد`, `بارش برف مدارس البرز`) × 2 Bing orderings via rss2json, merged and deduped
+- [x] **T051** [US6] Keyword gate: an item counts only with ≥2 closure keywords + ≥1 locality term, and only if ≤24 h old; otherwise it is dropped silently
+- [x] **T052** [US6] Resolve the region from the saved weather location (D2), with a settings override; build the URL templates exactly as research.md documents them
+- [x] **T053** [US6] `NewsAlert.tsx` — the 21:00 popup: headline, source, a link out to the publisher (never republish full text), acknowledge action; and a one-time re-show of an unacknowledged alert on the next open within 12 h
 - [ ] **T054** [US6] Throttle: the check runs once per night; a failed check is retried twice with backoff and then **stays silent for the night**
-- [ ] **T055** [US6] Fallback path: when rss2json is unavailable, fall back to the direct CORS-open feeds and apply the same gate; if both fail, silence (research.md §6.2 — do not use allorigins/cors.lol/jina/codetabs/corsproxy)
+- [x] **T055** [US6] Fallback path: when rss2json is unavailable, fall back to the direct CORS-open feeds and apply the same gate; if both fail, silence (research.md §6.2 — do not use allorigins/cors.lol/jina/codetabs/corsproxy)
 
 **Checkpoint**: US6 works standalone; the popup is rare by design.
 
@@ -215,7 +215,7 @@ assert no hardcoded colour outside `themes.ts`.
 ## Phase 10: Polish & Cross-Cutting Concerns
 
 - [ ] **T064** [P] Extend `scripts/cdp-ux-check.mjs` to cover every new behaviour; the run must end with `failed:[]` (FR-20) — this is the release gate
-- [ ] **T065** [P] Run the full `scripts/probe-bugs.mjs` battery (5/5 verdicts green) plus `tsc --noEmit` and `npm run build`
+- [x] **T065** [P] Run the full `scripts/probe-bugs.mjs` battery (5/5 verdicts green) plus `tsc --noEmit` and `npm run build`
 - [ ] **T066** [P] Re-verify the Android WebView: scroll, FAB, themes, advisory, and the 21:00 alert on a real device
 - [ ] **T067** [P] Document the new features in `README.md` (advisory window, timetable model, backup, news sources + their caveats, AI key setup)
 - [ ] **T068** Code cleanup: remove dead code and the debug hooks that are no longer needed, keeping `__anjam*` hooks that the harness depends on
