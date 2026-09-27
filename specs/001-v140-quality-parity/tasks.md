@@ -219,8 +219,8 @@ assert no hardcoded colour outside `themes.ts`.
 - [ ] **T066** [P] Re-verify the Android WebView: scroll, FAB, themes, advisory, and the 21:00 alert on a real device
 - [x] **T067** [P] Document the new features in `README.md` (advisory window, timetable model, backup, news sources + their caveats, AI key setup)
 - [x] **T068** Code cleanup: remove dead code and the debug hooks that are no longer needed, keeping `__anjam*` hooks that the harness depends on
-- [ ] **T069** Release: `scripts/verify-release.mjs` + `apksigner verify` on the APK, then build the Electron installer
-- [ ] **T070** Commit and push the release to `origin/main` with the v1.4.0 tag
+- [x] **T069** Release: `scripts/verify-release.mjs` + `apksigner verify` on the APK, then build the Electron installer
+- [x] **T070** Commit and push the release to `origin/main` with the v1.4.0 tag
 
 ---
 
