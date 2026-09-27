@@ -150,11 +150,6 @@ export const Repeat = (p: SVGProps<SVGSVGElement>) => (
     <path d="M21 13v1a4 4 0 0 1-4 4H3" />
   </svg>
 )
-export const List = (p: SVGProps<SVGSVGElement>) => (
-  <svg {...base(p)}>
-    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-  </svg>
-)
 export const Chevron = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="m9 6 6 6-6 6" />

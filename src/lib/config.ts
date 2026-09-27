@@ -53,12 +53,6 @@ export function saveConfig(url: string, key: string): void {
   cached = null
 }
 
-export function clearConfig(): void {
-  localStorage.removeItem(K_URL)
-  localStorage.removeItem(K_KEY)
-  cached = null
-}
-
 // --- v1.4.0 pref keys -------------------------------------------------
 // One small typed helper per feature so no component hand-rolls a
 // localStorage string and typos cannot silently create a second key.
@@ -79,7 +73,6 @@ const V14 = {
   aiLang: 'anjam.ai.lang'
 } as const
 
-export const PREF_KEYS = V14
 
 const getStr = (k: string): string => (localStorage.getItem(k) || '').trim()
 const setStr = (k: string, v: string): void => {
@@ -96,16 +89,6 @@ const getBool = (k: string, dflt: boolean): boolean => {
   return v === '' ? dflt : v === '1'
 }
 const setBool = (k: string, v: boolean): void => setStr(k, v ? '1' : '0')
-
-/** All v1.4.0 prefs, so backup export can include them wholesale. */
-export function collectV14Prefs(): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const k of Object.values(V14)) {
-    const v = localStorage.getItem(k)
-    if (v != null) out[k] = v
-  }
-  return out
-}
 
 export const prefs = {
   getTheme: () => getStr(V14.theme),

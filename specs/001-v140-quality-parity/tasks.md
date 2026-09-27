@@ -39,7 +39,7 @@ touch). Do not re-do the grid/timer/alarm work.
 - [x] **T007** [P] Create `src/lib/advisory.ts` — the pure rule engine: `evaluate(now, forecast) → Advisory | null`, one branch per condition class in FR-05, each message authored per condition **and** per language with an actionable clause (FR-06). Pure function, no I/O, < 50 ms
 - [x] **T008** [P] Create `src/lib/news.ts` — `fetchNews(region) → NewsItem[]` per research.md §6.3: primary = rss2json over Bing News RSS, 4 keyword queries × 2 orderings, merged; fallback = direct CORS-open feeds (`borna.news/fa/rss/allnews` first, then entekhab/asriran/yjc), keyword-filtered client-side. 2 retries with backoff, 20 s cap per source
 - [x] **T009** [P] Create `src/lib/backup.ts` — `exportBackup()` / `validateBackup()` / `importBackup()` per FR-14/FR-15: every table + all `anjam.*` prefs + IndexedDB `meta`, versioned envelope, validation **before** any write, restore summary, explicit confirmation, atomic from the user's point of view
-- [ ] **T010** Add the migration for `study_slots.period`: additive + idempotent, `start`/`"end"` become nullable, partial unique index per FR-08/FR-09, and pass `python scripts/sql-lint.py`
+- [x] **T010** Add the migration for `study_slots.period`: additive + idempotent, `start`/`"end"` become nullable, partial unique index per FR-08/FR-09, and pass `python scripts/sql-lint.py`
 - [ ] **T011** Extend `src/lib/store.ts` with the period-based slot API (`listPeriods`, `setPeriod`, `clearPeriod`) alongside the existing slot API, plus the `__anjamStore` debug hook the harness needs to seed a timetable without Supabase
 
 **Checkpoint**: rules engine, fetch strategy, backup envelope, migration and period API all
@@ -151,8 +151,8 @@ assert no hardcoded colour outside `themes.ts`.
 
 ### Tests (must fail first)
 
-- [ ] **T041** [P] [US5] Harness: round-trip — export, clear local data, import, assert every table row count and every `anjam.*` pref matches the snapshot
-- [ ] **T042** [P] [US5] Harness: rejection cases — corrupt JSON, unknown version, missing table → assert a restore summary is shown, **no** write happened, and local data is untouched
+- [x] **T041** [P] [US5] Harness: round-trip — export, clear local data, import, assert every table row count and every `anjam.*` pref matches the snapshot
+- [x] **T042** [P] [US5] Harness: rejection cases — corrupt JSON, unknown version, missing table → assert a restore summary is shown, **no** write happened, and local data is untouched
 
 ### Implementation
 
@@ -182,7 +182,7 @@ assert no hardcoded colour outside `themes.ts`.
 - [x] **T051** [US6] Keyword gate: an item counts only with ≥2 closure keywords + ≥1 locality term, and only if ≤24 h old; otherwise it is dropped silently
 - [x] **T052** [US6] Resolve the region from the saved weather location (D2), with a settings override; build the URL templates exactly as research.md documents them
 - [x] **T053** [US6] `NewsAlert.tsx` — the 21:00 popup: headline, source, a link out to the publisher (never republish full text), acknowledge action; and a one-time re-show of an unacknowledged alert on the next open within 12 h
-- [ ] **T054** [US6] Throttle: the check runs once per night; a failed check is retried twice with backoff and then **stays silent for the night**
+- [x] **T054** [US6] Throttle: the check runs once per night; a failed check is retried twice with backoff and then **stays silent for the night**
 - [x] **T055** [US6] Fallback path: when rss2json is unavailable, fall back to the direct CORS-open feeds and apply the same gate; if both fail, silence (research.md §6.2 — do not use allorigins/cors.lol/jina/codetabs/corsproxy)
 
 **Checkpoint**: US6 works standalone; the popup is rare by design.
@@ -214,11 +214,11 @@ assert no hardcoded colour outside `themes.ts`.
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] **T064** [P] Extend `scripts/cdp-ux-check.mjs` to cover every new behaviour; the run must end with `failed:[]` (FR-20) — this is the release gate
+- [x] **T064** [P] Extend `scripts/cdp-ux-check.mjs` to cover every new behaviour; the run must end with `failed:[]` (FR-20) — this is the release gate
 - [x] **T065** [P] Run the full `scripts/probe-bugs.mjs` battery (5/5 verdicts green) plus `tsc --noEmit` and `npm run build`
 - [ ] **T066** [P] Re-verify the Android WebView: scroll, FAB, themes, advisory, and the 21:00 alert on a real device
-- [ ] **T067** [P] Document the new features in `README.md` (advisory window, timetable model, backup, news sources + their caveats, AI key setup)
-- [ ] **T068** Code cleanup: remove dead code and the debug hooks that are no longer needed, keeping `__anjam*` hooks that the harness depends on
+- [x] **T067** [P] Document the new features in `README.md` (advisory window, timetable model, backup, news sources + their caveats, AI key setup)
+- [x] **T068** Code cleanup: remove dead code and the debug hooks that are no longer needed, keeping `__anjam*` hooks that the harness depends on
 - [ ] **T069** Release: `scripts/verify-release.mjs` + `apksigner verify` on the APK, then build the Electron installer
 - [ ] **T070** Commit and push the release to `origin/main` with the v1.4.0 tag
 

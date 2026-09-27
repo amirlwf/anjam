@@ -82,8 +82,17 @@ export default function TaskDetail({
 
   function setTime(value: string) {
     if (!tk.due_at) return
+    /* Chrome hands over a partial value while the field is being edited
+     * ("" or "09:"); parseInt would give NaN, setHours would poison the
+     * Date and toISOString() would throw RangeError. Write only a complete
+     * clock value — the draft keeps the half-typed text meanwhile. */
+    const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+    if (!m) return
+    const h = Number(m[1])
+    const mi = Number(m[2])
+    if (h > 23 || mi > 59) return
     const date = new Date(tk.due_at)
-    const [h, mi] = value.split(':').map((x) => parseInt(x, 10))
+    if (Number.isNaN(date.getTime())) return
     date.setHours(h, mi, 0, 0)
     void updateTask(taskId, { due_at: date.toISOString(), all_day: false })
   }
@@ -168,7 +177,11 @@ export default function TaskDetail({
                       // If the write already landed the effect has cleared the
                       // draft; if it has not, dropping it here would flash the
                       // old time back, so only settle when they agree.
-                      if (toTimeInput(task.due_at) === timeDraft) setTimeDraft(null)
+                      if (toTimeInput(task.due_at) === timeDraft) { setTimeDraft(null); return }
+                      // A half-typed value never reached the store (see
+                      // setTime) — revert it instead of leaving the field
+                      // showing text the task does not have.
+                      if (timeDraft !== null && !/^\d{1,2}:\d{2}$/.test(timeDraft)) setTimeDraft(null)
                     }}
                   />
                 )}

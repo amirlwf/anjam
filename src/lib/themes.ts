@@ -166,10 +166,6 @@ export const THEMES: ThemeDefinition[] = [
 export const THEME_IDS = THEMES.map(t => t.id)
 export const DEFAULT_THEME = 'indigo'
 
-export function themeById(id: string): ThemeDefinition {
-  return THEMES.find(t => t.id === id) || THEMES[0]
-}
-
 /** Is this one of the six real themes (the variable pseudo-theme is not)? */
 export function isThemeId(id: string): boolean {
   return THEME_IDS.includes(id)

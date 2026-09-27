@@ -49,10 +49,6 @@ function setStatus(patch: Partial<SyncStatus>): void {
   statusSubs.forEach((f) => f(status))
 }
 
-export function getSyncStatus(): SyncStatus {
-  return status
-}
-
 export function onSyncStatus(fn: (s: SyncStatus) => void): () => void {
   statusSubs.add(fn)
   fn(status)

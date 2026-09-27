@@ -238,15 +238,6 @@ export async function updateLabel(id: string, patch: Partial<LabelRow>): Promise
   await persist('labels', next)
 }
 
-export async function destroyLabel(id: string): Promise<void> {
-  const label = state.labels.find((x) => x.id === id)
-  if (!label) return
-  await updateLabel(id, { deleted: true })
-  for (const task of state.tasks.filter((x) => !x.deleted && x.labels.includes(label.name))) {
-    await updateTask(task.id, { labels: task.labels.filter((l) => l !== label.name) })
-  }
-}
-
 /* ---------------- habits (routine) ---------------- */
 
 export async function addHabit(name: string, color?: string, userId?: string): Promise<HabitRow> {
@@ -289,10 +280,6 @@ export function toggleHabitDay(id: string, day: string): void {
   if (!h) return
   const logs = h.logs.includes(day) ? h.logs.filter((d) => d !== day) : [...h.logs, day].sort()
   void updateHabit(id, { logs })
-}
-
-export function liveHabits(): HabitRow[] {
-  return state.habits.filter((x) => !x.deleted)
 }
 
 /* ---------------- important dates ---------------- */
@@ -405,10 +392,6 @@ export async function addStudySubject(name: string, color?: string): Promise<Stu
   return row
 }
 
-export async function updateStudySubject(id: string, patch: Partial<StudySubjectRow>): Promise<void> {
-  await updateRow('study_subjects', state.subjects, 'subjects', id, patch)
-}
-
 export async function destroyStudySubject(id: string): Promise<void> {
   await destroyRow('study_subjects', state.subjects, 'subjects', id)
 }
@@ -490,10 +473,6 @@ export async function setStudyPeriod(
 
 export async function updateStudySlot(id: string, patch: Partial<StudySlotRow>): Promise<void> {
   await updateRow('study_slots', state.slots, 'slots', id, patch)
-}
-
-export async function destroyStudySlot(id: string): Promise<void> {
-  await destroyRow('study_slots', state.slots, 'slots', id)
 }
 
 /* ---- homework ---- */

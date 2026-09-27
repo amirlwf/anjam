@@ -147,13 +147,29 @@ create table if not exists public.study_slots (
   user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
   subject_id  uuid references public.study_subjects (id) on delete set null,
   weekday     int  not null check (weekday between 0 and 6),
-  start       text not null,
-  "end"       text not null,
+  -- FR-08: the schedule is the period number itself (زنگ ۱ …), not a clock
+  -- time. start/end stay nullable only so a v1.3 clock-based timetable can be
+  -- read once during migration; nothing writes them any more.
+  period      int,
+  start       text,
+  "end"       text,
   room        text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   deleted     boolean not null default false
 );
+
+-- v1.4.0 upgrade for databases created by v1.3.0 and earlier: additive and
+-- idempotent, so re-running this file on a fresh install is a no-op.
+alter table public.study_slots add column if not exists period int;
+alter table public.study_slots alter column start drop not null;
+alter table public.study_slots alter column "end" drop not null;
+
+-- FR-09: one subject per (user, day, ring). Partial so legacy clock rows and
+-- soft-deleted rows never collide.
+create unique index if not exists study_slots_user_week_period
+  on public.study_slots (user_id, weekday, period)
+  where not deleted and period is not null;
 
 create table if not exists public.study_homework (
   id          uuid primary key default gen_random_uuid(),

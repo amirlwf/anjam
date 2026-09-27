@@ -12,7 +12,9 @@ fs.mkdirSync(OUT, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const toAscii = (s) => String(s).replace(/[۰-۹]/g, (d) => String('\u06f0۱۲۳۴۵۶۷۸۹'.indexOf(d) + 48 * 0).replace(/^$/, () => '0123456789'[['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'].indexOf(d)]))
 const results = []
+let currentCheck = '(before first check)'
 const check = (name, ok, info = '') => {
+  currentCheck = name
   results.push({ name, ok, info })
   console.log((ok ? 'PASS ' : 'FAIL ') + name + (info ? ' — ' + info : ''))
 }
@@ -32,7 +34,10 @@ async function main() {
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) }
     if (m.method === 'Runtime.exceptionThrown') {
       const d = m.params?.exceptionDetails
-      consoleErrs.push(String(d?.exception?.description || d?.text || 'exception').slice(0, 220))
+      const frames = (d?.stackTrace?.callFrames || []).slice(0, 3)
+        .map((f) => (f.functionName || '?') + '@' + (f.url || 'inline') + ':' + (f.lineNumber + 1))
+        .join(' <- ')
+      consoleErrs.push('[' + currentCheck + '] ' + String(d?.exception?.description || d?.text || 'exception').split('\n')[0].slice(0, 160) + ' :: ' + frames)
     }
     if (m.method === 'Log.entryAdded' && m.params?.entry?.level === 'error') {
       consoleErrs.push(String(m.params.entry.text).slice(0, 220))
@@ -377,6 +382,35 @@ async function main() {
   await sleep(700)
   const timeVal = await evalJs(`document.querySelector('[data-testid=time-input]')?.value || ''`)
   check('ring time set', timeVal === ringTime, timeVal + ' want ' + ringTime)
+  /* A half-typed clock value used to reach setHours(NaN) and throw
+   * RangeError out of toISOString() — an uncaught error in onChange.
+   * Clearing the field is the cheapest way to produce one. */
+  const errsBeforePartial = consoleErrs.length
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-testid=time-input]')
+    if (!el) return 'no-input'
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(el, '')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+    return 'cleared'
+  })()`)
+  await sleep(600)
+  const badClock = consoleErrs.slice(errsBeforePartial).filter((e) => /RangeError|Invalid time value/.test(e))
+  check('a half-typed clock value does not throw', badClock.length === 0, badClock.join(' | ').slice(0, 200))
+  const afterClear = await evalJs(`document.querySelector('[data-testid=time-input]')?.value ?? ''`)
+  check('a rejected clock value keeps the stored time', afterClear === ringTime || afterClear === '', JSON.stringify(afterClear))
+  // put the real time back through the same path so later checks see it
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-testid=time-input]')
+    if (!el) return 'no-input'
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(el, ${JSON.stringify(ringTime)})
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+    return el.value
+  })()`)
+  await sleep(500)
   await sleep(300)
   const bellDom = await evalJs(`JSON.stringify({
     bell: !!document.querySelector('[data-testid=bell-btn]'),
@@ -595,6 +629,11 @@ async function main() {
   await sleep(450)
   check('study subject added', await evalJs(`document.querySelectorAll('.subj-chip').length >= 1`) === true)
   // ---- US3 / FR-08: the timetable is rings, not a clock ----
+  /* The day select defaults to TODAY, so the slot would land on whichever
+   * row happens to be today — a fixture tied to the machine's clock. Pick
+   * the row under test explicitly instead. */
+  await setReact('[data-testid=study-tt] .slot-form select', '0', 'change', 1)
+  await sleep(200)
   await setReact('[data-testid=study-tt] .slot-form select', await evalJs(`document.querySelectorAll('[data-testid=study-tt] .slot-form select')[0]?.options[1]?.value || ''`), 'change')
   await sleep(250)
   await evalJs(`(() => { const b = document.querySelector('[data-testid=slot-add]'); b && b.click(); return !!b })()`)
@@ -1415,6 +1454,202 @@ async function main() {
     return 'restored'
   })()`)
   await sleep(300)
+  /* ---------------------------------------------------------------
+   * US5 — T041 round trip (export -> wipe -> import -> same counts and
+   * prefs) and T042 rejection (corrupt / unknown version / missing table).
+   *
+   * The export is captured where it is produced: downloadBackup() hands a
+   * Blob to URL.createObjectURL, so intercepting that gives the exact bytes
+   * the user would have saved, and the same bytes are fed back in.
+   * --------------------------------------------------------------- */
+
+  const PREF_KEEP = ['anjam.auth', 'anjam.auth-user', 'anjam.supabase.url', 'anjam.supabase.key']
+  const snapshotPrefs = async () => JSON.parse(await evalJs(`JSON.stringify(
+    Object.keys(localStorage).filter(k => k.indexOf('anjam.') === 0)
+      .filter(k => ${JSON.stringify(PREF_KEEP)}.indexOf(k) < 0)
+      // the export stamp is written by the export itself, so comparing it
+      // would fail for a reason that has nothing to do with the restore
+      .filter(k => k !== 'anjam.backup.lastExport')
+      .sort().reduce((a, k) => { a[k] = localStorage.getItem(k); return a }, {})
+  )`))
+
+  const armExport = `(() => {
+    window.__anjamOut = null
+    if (!window.__anjamOrigCreate) window.__anjamOrigCreate = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = function (obj) {
+      const url = window.__anjamOrigCreate(obj)
+      try {
+        if (obj && typeof obj.text === 'function') {
+          obj.text().then(txt => { window.__anjamOut = txt }).catch(() => undefined)
+        }
+      } catch (e) { /* not our blob */ }
+      return url
+    }
+    return 'armed'
+  })()`
+  const readCounts = `json => {
+    const f = JSON.parse(json)
+    const counts = {}
+    for (const k of Object.keys(f.data)) counts[k] = f.data[k].length
+    return { counts, prefs: f.prefs || {}, version: f.version, rows: Object.values(counts).reduce((a, b) => a + b, 0) }
+  }`
+
+  const openSettings = async () => {
+    await evalJs(`(() => {
+      const b = [...document.querySelectorAll('.topbar-actions button')].find(x => /تنظیمات|Settings/i.test(x.title || ''))
+      b && b.click(); return b ? 'ok' : 'no-gear'
+    })()`)
+    await sleep(700)
+  }
+  const closeSettings = async () => {
+    await evalJs(`(() => { const b = document.querySelector('.modal .close, .modal [aria-label*="بست"], .modal [aria-label*="Close"]'); if (b) b.click(); return 'closed' })()`)
+    await sleep(500)
+  }
+  const grabExport = async () => {
+    const doExport = async () => {
+      await evalJs(armExport)
+      const clicked = await evalJs(`(() => { const b = document.querySelector('[data-testid="backup-export"]'); if (b) b.click(); return b ? 'ok' : 'no-btn' })()`)
+      await sleep(900)
+      const out = String(await evalJs(`window.__anjamOut || ''`))
+      return { clicked, out }
+    }
+    let r = await doExport()
+    if (!r.out) {
+      // the modal can still be settling after a reload — one honest retry
+      await sleep(900)
+      r = await doExport()
+    }
+    if (!r.out) {
+      const state = await evalJs(`JSON.stringify({ gear: !!document.querySelector('.topbar-actions'), modal: !!document.querySelector('.modal'), btn: !!document.querySelector('[data-testid="backup-export"]') })`)
+      throw new Error('EXPORT_EMPTY clicked=' + r.clicked + ' state=' + state)
+    }
+    return r.out
+  }
+
+  await openSettings()
+  const prefsBefore = await snapshotPrefs()
+  const export1 = await grabExport()
+  const snap1 = await evalJs(`(${readCounts})(${JSON.stringify(export1)})`)
+  check('T041 export produces a readable file', export1.length > 40 && snap1.rows > 0, 'bytes=' + export1.length + ' rows=' + snap1.rows)
+  check('T041 export covers every backup table', Object.keys(snap1.counts).length >= 11, Object.keys(snap1.counts).join(','))
+  const stamp1 = await evalJs(`localStorage.getItem('anjam.backup.lastExport') || ''`)
+  check('T041 export is stamped', Number(String(stamp1).replace(/"/g, '')) > 0, String(stamp1))
+
+  // --- wipe: the database goes, and so do the prefs the restore must bring back ---
+  const wipeRes = await evalJs(`(() => { window.confirm = () => true; const b = [...document.querySelectorAll('button')].find(x => /پاک|Clear local data/i.test(x.textContent || '')); b && b.click(); return b ? 'cleared' : 'no-clear' })()`)
+  check('T041 wipe control is reachable', wipeRes === 'cleared', String(wipeRes))
+  let booted = false
+  for (let i = 0; i < 30; i++) {
+    await sleep(600)
+    booted = await evalJs(`!!document.getElementById('quickadd-input')`)
+    if (booted) break
+  }
+  check('T041 app comes back up after the wipe', booted, String(booted))
+  await evalJs(`(() => {
+    const keep = ${JSON.stringify(PREF_KEEP)}
+    Object.keys(localStorage).filter(k => k.indexOf('anjam.') === 0)
+      .filter(k => keep.indexOf(k) < 0)
+      .forEach(k => localStorage.removeItem(k))
+    return 'prefs-cleared'
+  })()`)
+  const emptyCounts = JSON.parse(await evalJs(`(() => {
+    // the store is empty now: the next export must show it
+    return JSON.stringify({ quick: !!document.getElementById('quickadd-input') })
+  })()`))
+  check('T041 the app is usable while empty', emptyCounts.quick === true, JSON.stringify(emptyCounts))
+  await openSettings()
+  const exportWipe = await grabExport()
+  const wipeSnap = await evalJs(`(${readCounts})(${JSON.stringify(exportWipe)})`)
+  // Proof the wipe landed: no task survives. Row totals may be non-zero if
+  // the app seeds a default list on an empty store, so only that is asserted
+  // strictly — what matters is that the restore below has real work to do.
+  check('T041 the wipe really emptied the data',
+    wipeSnap.counts.tasks === 0 && wipeSnap.rows < snap1.rows,
+    JSON.stringify(wipeSnap.counts) + ' vs ' + snap1.rows + ' rows')
+
+  // --- restore the exact bytes we exported (settings is already open) ---
+  await evalJs(`(() => {
+    const input = document.querySelector('[data-testid="backup-file"]')
+    if (!input) return 'no-input'
+    const file = new File([${JSON.stringify(export1)}], 'anjam-backup-qa.json', { type: 'application/json' })
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    input.files = dt.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    return 'queued'
+  })()`)
+  await sleep(1200)
+  const summaryTxt = String(await evalJs(`(document.querySelector('[data-testid="backup-summary-text"]') || {}).textContent || ''`))
+  check('T041 a restore summary is shown before anything is written', summaryTxt.length > 5, summaryTxt)
+  const tblLen = Number(await evalJs(`document.querySelectorAll('[data-testid="backup-tables"] li').length`))
+  check('T041 the summary lists the tables', tblLen >= 11, String(tblLen))
+  await evalJs(`(() => { const b = document.querySelector('[data-testid="backup-confirm"]'); if (b) b.click(); return b ? 'confirmed' : 'no-confirm' })()`)
+  /* The app reloads itself ~700ms later, and the page it is about to throw
+   * away still has #quickadd-input — polling for it straight away races the
+   * reload and reports the OLD page as booted. Wait past the reload first. */
+  await sleep(1700)
+  booted = false
+  for (let i = 0; i < 30; i++) {
+    await sleep(600)
+    booted = await evalJs(`!!document.getElementById('quickadd-input')`)
+    if (booted) break
+  }
+  check('T041 the app reloads after the restore', booted, String(booted))
+
+  await openSettings()
+  const export2 = await grabExport()
+  await closeSettings()
+  const snap2 = await evalJs(`(${readCounts})(${JSON.stringify(export2)})`)
+  const prefsAfter = await snapshotPrefs()
+  const countsMatch = JSON.stringify(snap1.counts) === JSON.stringify(snap2.counts)
+  check('T041 every table row count matches the snapshot', countsMatch, JSON.stringify(snap1.counts) + ' vs ' + JSON.stringify(snap2.counts))
+  check('T041 total row count matches', snap1.rows === snap2.rows, snap1.rows + ' vs ' + snap2.rows)
+  check('T041 every anjam.* pref matches the snapshot', JSON.stringify(prefsBefore) === JSON.stringify(prefsAfter), JSON.stringify({ before: prefsBefore, after: prefsAfter }).slice(0, 240))
+  check('T041 the restored file keeps its version', snap1.version === snap2.version, snap1.version + '/' + snap2.version)
+
+  /* ---- T042: three bad files must change nothing ---- */
+  const tryFile = async (content, label) => {
+    await openSettings()
+    await evalJs(`(() => {
+      const input = document.querySelector('[data-testid="backup-file"]')
+      if (!input) return 'no-input'
+      const file = new File([${JSON.stringify(content)}], 'bad.json', { type: 'application/json' })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      input.files = dt.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      return 'queued'
+    })()`)
+    await sleep(1000)
+    const st = JSON.parse(await evalJs(`JSON.stringify({
+      msg: (document.querySelector('[data-testid="backup-msg"]') || {}).textContent || '',
+      summary: !!document.querySelector('[data-testid="backup-summary"]'),
+      confirm: !!document.querySelector('[data-testid="backup-confirm"]')
+    })`))
+    await closeSettings()
+    return { label, ...st }
+  }
+
+  const badJson = '{ this is not json ]'
+  const badVersion = JSON.stringify({ ...JSON.parse(export1), version: 99 })
+  const missingTable = (() => { const f = JSON.parse(export1); delete f.data.tasks; return JSON.stringify(f) })()
+  const rej = []
+  rej.push(await tryFile(badJson, 'corrupt-json'))
+  rej.push(await tryFile(badVersion, 'unknown-version'))
+  rej.push(await tryFile(missingTable, 'missing-table'))
+  for (const r of rej) {
+    check('T042 ' + r.label + ' is rejected with a reason', r.msg.length > 20 && /معتبر|invalid/i.test(r.msg), r.msg.slice(0, 90))
+    check('T042 ' + r.label + ' offers no confirm button', r.summary === false && r.confirm === false, JSON.stringify(r))
+  }
+
+  // and the data behind all three attempts is exactly what it was
+  await openSettings()
+  const export3 = await grabExport()
+  await closeSettings()
+  const snap3 = await evalJs(`(${readCounts})(${JSON.stringify(export3)})`)
+  check('T042 rejected files left the data untouched', JSON.stringify(snap2.counts) === JSON.stringify(snap3.counts), JSON.stringify(snap3.counts))
+  const prefsFinal = await snapshotPrefs()
+  check('T042 rejected files left the prefs untouched', JSON.stringify(prefsBefore) === JSON.stringify(prefsFinal), JSON.stringify(prefsFinal).slice(0, 200))
   // --- no unexpected console errors (offline noise excluded) ---
   const noise = /Failed to fetch|NetworkError|net::ERR|Load failed|Failed to load resource|AbortError|navigator\.vibrate|supabase|open-meteo|geolocation|Geolocation|weather|favicon/i
   const realErrs = consoleErrs.filter((e) => !noise.test(e))

@@ -38,10 +38,6 @@ function faDig(s: string | number): string {
   return String(s).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)])
 }
 
-export function jalLeap(jy: number): boolean {
-  return isLeapJalaaliYear(jy)
-}
-
 export function toJalaali(gy: number, gm: number, gd: number): { jy: number; jm: number; jd: number } {
   return g2j(gy, gm, gd)
 }

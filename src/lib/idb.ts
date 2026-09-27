@@ -53,7 +53,6 @@ export const idbPut = (store: StoreName, value: unknown): Promise<IDBValidKey> =
 export const idbDelete = (store: StoreName, key: IDBValidKey): Promise<undefined> =>
   run(store, 'readwrite', (s) => s.delete(key))
 export const idbClear = (store: StoreName): Promise<undefined> => run(store, 'readwrite', (s) => s.clear())
-export const idbCount = (store: StoreName): Promise<number> => run<number>(store, 'readonly', (s) => s.count())
 
 export async function idbPutMany(store: StoreName, values: unknown[]): Promise<void> {
   const db = await openDB()
